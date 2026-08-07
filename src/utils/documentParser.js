@@ -172,11 +172,53 @@ async function extractPdfText(arrayBuffer) {
   const pdf = await loadingTask.promise
   const pages = []
   let ownerName = ''
+  let activeSection = ''
 
   const sectionLabels = new Set(['meta', 'ser', 'hacer', 'tener'])
   const isCategory = (value) => /^\d+\.\s*.+[.:]?$/i.test(value)
   const isGoal = (value) => /^LOGRO\s*\d+/i.test(value)
   const joinParts = (parts) => clean(parts.join(' ')).replace(/\s+([.,;:!?])/g, '$1')
+  const columnFor = (x) => {
+    if (x < 90) return 'label'
+    if (x < 435) return 'content'
+    if (x < 515) return 'date'
+    return 'check'
+  }
+
+  const mergePdfFragments = (sourceItems) => {
+    const merged = []
+
+    sourceItems.forEach((item) => {
+      const value = clean(item.str)
+      if (!value || !item.transform) return
+
+      const next = {
+        value,
+        x: item.transform[4],
+        y: item.transform[5],
+        width: Math.abs(item.width || 0),
+      }
+      const previous = merged.at(-1)
+
+      if (
+        previous
+        && Math.abs(previous.y - next.y) <= 2
+        && columnFor(previous.x) === columnFor(next.x)
+        && next.x >= previous.x - 1
+      ) {
+        const previousRight = previous.x + previous.width
+        const gap = next.x - previousRight
+        const separator = gap <= 2 ? '' : ' '
+        previous.value = clean(`${previous.value}${separator}${next.value}`)
+        previous.width = Math.max(previousRight, next.x + next.width) - previous.x
+        return
+      }
+
+      merged.push(next)
+    })
+
+    return merged
+  }
 
   const sectionRowsFromItems = (label, labelItem, block, dateThreshold, checkThreshold) => {
     const contentThreshold = labelItem.x + 20
@@ -225,9 +267,7 @@ async function extractPdfText(arrayBuffer) {
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
       const page = await pdf.getPage(pageNumber)
       const content = await page.getTextContent()
-      const items = content.items
-        .filter((item) => item.transform)
-        .map((item) => ({ value: clean(item.str), x: item.transform[4], y: item.transform[5] }))
+      const items = mergePdfFragments(content.items)
 
       if (!ownerName) {
         const nameIndex = items.findIndex((item) => item.value.toLocaleLowerCase('es') === 'nombre')
@@ -244,20 +284,44 @@ async function extractPdfText(arrayBuffer) {
 
       const fechaItem = items.find((item) => item.value.toLocaleLowerCase('es') === 'fecha')
       const checkItem = items.find((item) => item.value.toLocaleLowerCase('es') === 'check')
-      const dateThreshold = fechaItem ? fechaItem.x - 25 : Number.POSITIVE_INFINITY
-      const checkThreshold = checkItem ? checkItem.x - 10 : Number.POSITIVE_INFINITY
+      const dateThreshold = fechaItem ? fechaItem.x - 25 : 435
+      const checkThreshold = checkItem ? checkItem.x - 10 : 515
       const semanticRows = []
+
+      const firstMarker = items.findIndex((item) => {
+        const normalized = item.value.toLocaleLowerCase('es')
+        return sectionLabels.has(normalized) || isCategory(item.value) || isGoal(item.value)
+      })
+
+      if (activeSection && firstMarker !== 0) {
+        const continuationEnd = firstMarker > 0 ? firstMarker : items.length
+        semanticRows.push(...sectionRowsFromItems(
+          activeSection,
+          { value: '', x: 55 },
+          items.slice(0, continuationEnd),
+          dateThreshold,
+          checkThreshold,
+        ))
+      }
 
       for (let index = 0; index < items.length; index += 1) {
         const item = items[index]
         const normalized = item.value.toLocaleLowerCase('es')
 
-        if (isCategory(item.value) || isGoal(item.value)) {
+        if (isCategory(item.value)) {
           semanticRows.push(item.value)
+          activeSection = ''
+          continue
+        }
+
+        if (isGoal(item.value)) {
+          semanticRows.push(item.value)
+          activeSection = ''
           continue
         }
 
         if (!sectionLabels.has(normalized)) continue
+        activeSection = normalized
 
         let end = index + 1
         while (end < items.length) {
