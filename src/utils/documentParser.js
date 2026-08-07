@@ -1,6 +1,6 @@
 import { Buffer } from 'buffer'
 
-export const DOCUMENT_PARSER_VERSION = 5
+export const DOCUMENT_PARSER_VERSION = 6
 
 const clean = (value = '') =>
   value
@@ -22,7 +22,7 @@ const isLikelyPersonName = (value) => {
     && candidate.length <= 80
     && words.length <= 8
     && !reserved.test(candidate)
-    && /^[\p{L}][\p{L}\s'.-]+$/u.test(candidate)
+    && /^[\p{L}][\p{L}\s'.()/-]+$/u.test(candidate)
   )
 }
 
@@ -410,7 +410,16 @@ async function extractLegacyDoc(arrayBuffer) {
   const reader = new BufferReader(Buffer.from(arrayBuffer))
   try {
     const document = await new WordOleExtractor().extract(reader)
-    return document.getBody()
+    const body = document.getBody()
+    const auxiliaryText = [
+      document.getTextboxes({ includeHeadersAndFooters: true }),
+      document.getHeaders(),
+      document.getFooters(),
+    ].filter(Boolean).join('\n')
+    const ownerName = extractOwnerName(auxiliaryText)
+    const contract = extractContract(auxiliaryText)
+
+    return `${ownerName ? `Nombre: ${ownerName}\n` : ''}${contract ? `Contrato: ${contract}\n` : ''}${body}`
   } finally {
     await reader.close()
   }

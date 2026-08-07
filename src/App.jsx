@@ -40,6 +40,7 @@ import { DOCUMENT_PARSER_VERSION, readPlanDocument } from './utils/documentParse
 import { clearActionImages, deleteActionImage, getActionImage, saveActionImage } from './utils/localMedia.js'
 
 const STORAGE_KEY = 'ruta-logros-state-v1'
+const PROFILE_NAME_KEY = 'ruta-logros-profile-name'
 const EMPTY_PLAN_TITLE = 'Mi Plan de Logros'
 
 const CATEGORY_STYLES = [
@@ -84,9 +85,25 @@ const prepareGoals = (goals, prefix = '') =>
     }
   })
 
+const loadProfileName = () => {
+  try {
+    return localStorage.getItem(PROFILE_NAME_KEY)?.trim() || ''
+  } catch {
+    return ''
+  }
+}
+
+const rememberProfileName = (ownerName) => {
+  try {
+    localStorage.setItem(PROFILE_NAME_KEY, ownerName.trim())
+  } catch {
+    // The plan still works when private browsing blocks local storage.
+  }
+}
+
 const createDefaultState = () => ({
   title: EMPTY_PLAN_TITLE,
-  ownerName: '',
+  ownerName: loadProfileName(),
   contract: '',
   sourceName: '',
   parserVersion: DOCUMENT_PARSER_VERSION,
@@ -110,7 +127,13 @@ const loadState = () => {
     )
 
     if (isUntouchedExamplePlan) return createDefaultState()
-    if (Array.isArray(saved?.goals)) return { ...saved, goals: prepareGoals(saved.goals) }
+    if (Array.isArray(saved?.goals)) {
+      return {
+        ...saved,
+        ownerName: saved.ownerName?.trim() || loadProfileName(),
+        goals: prepareGoals(saved.goals),
+      }
+    }
   } catch {
     // If a previous local backup is corrupt, start with a clean workspace.
   }
@@ -260,7 +283,64 @@ function StoredActionImage({ attachment, onRemove }) {
   )
 }
 
-function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, onEditGoal, onAddTask, onEditTask, open, onToggleOpen }) {
+function QuickImageUpload({ goalId, task, onUpload }) {
+  const inputRef = useRef(null)
+  const [status, setStatus] = useState('idle')
+  const [message, setMessage] = useState('')
+  const attachmentCount = task.attachments?.length || 0
+  const isFull = attachmentCount >= 4
+
+  useEffect(() => {
+    if (!message) return undefined
+    const timer = window.setTimeout(() => setMessage(''), 3200)
+    return () => window.clearTimeout(timer)
+  }, [message])
+
+  const chooseImages = async (files) => {
+    if (!files?.length) return
+    setStatus('saving')
+    setMessage('')
+    try {
+      const result = await onUpload(goalId, task.id, files)
+      setStatus('saved')
+      setMessage(result.skipped
+        ? `${result.saved} guardada${result.saved === 1 ? '' : 's'} · límite 4`
+        : result.saved === 1 ? 'Imagen guardada' : `${result.saved} imágenes guardadas`)
+    } catch (error) {
+      setStatus('error')
+      setMessage(error.message || 'No se pudo guardar')
+    } finally {
+      if (inputRef.current) inputRef.current.value = ''
+    }
+  }
+
+  return (
+    <div className="quick-image-upload">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        onChange={(event) => chooseImages(event.target.files)}
+      />
+      <button
+        className="task-image-button"
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        disabled={status === 'saving' || isFull}
+        aria-label={isFull ? 'Esta acción ya tiene 4 imágenes' : `Añadir imagen a la acción: ${task.text}`}
+        title={isFull ? 'Límite de 4 imágenes. Puedes administrarlas desde Editar.' : 'Añadir evidencia desde este dispositivo'}
+      >
+        {status === 'saving' ? <LoaderCircle className="spin" size={14} /> : <ImagePlus size={14} />}
+        <span>{isFull ? '4/4' : 'Imagen'}</span>
+      </button>
+      {message && <span className={`quick-image-feedback ${status}`} role="status">{message}</span>}
+    </div>
+  )
+}
+
+function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, onEditGoal, onAddTask, onEditTask, onAddTaskImages, open, onToggleOpen }) {
   const categoryStyle = getCategoryStyle(goal.category)
   const CategoryIcon = categoryStyle.Icon
   const progress = getGoalProgress(goal)
@@ -353,9 +433,12 @@ function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, onEditGoal, 
                         </div>
                       )}
                     </div>
-                    <button className="task-edit-button" onClick={() => onEditTask(goal, task)} aria-label="Editar acción">
-                      <Pencil size={14} />
-                    </button>
+                    <div className="task-row-actions">
+                      <QuickImageUpload goalId={goal.id} task={task} onUpload={onAddTaskImages} />
+                      <button className="task-edit-button" onClick={() => onEditTask(goal, task)} aria-label="Editar acción" title="Editar acción">
+                        <Pencil size={14} />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -364,6 +447,10 @@ function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, onEditGoal, 
                 <Plus size={16} /> Agregar la primera acción
               </button>
             )}
+            <div className="inline-media-notice">
+              <HardDrive size={13} />
+              <span>Las imágenes quedan solo en este navegador. Mover el archivo original no las afecta.</span>
+            </div>
           </div>
 
           <div className="detail-grid">
@@ -436,7 +523,7 @@ function ImportModal({ onClose, onImport }) {
           <button className="icon-button" onClick={onClose} aria-label="Cerrar"><X size={20} /></button>
         </div>
 
-        <div className="name-detection-note"><UserRound size={17} /> Leeremos el nombre y el contrato directamente del documento. Si el nombre no existe, te lo pediremos una sola vez.</div>
+        <div className="name-detection-note"><UserRound size={17} /> Leeremos el nombre y el contrato, incluso si están en cuadros de texto de Word. Si el nombre no existe, usaremos tu perfil guardado.</div>
 
         <div
           className={`drop-zone ${file ? 'has-file' : ''}`}
@@ -508,7 +595,7 @@ function EditNameModal({ currentName, onClose, onSave }) {
           <div>
             <span className="modal-kicker">Perfil del plan</span>
             <h2 id="edit-name-title">Editar nombre</h2>
-            <p>Este nombre aparecerá en el menú y en la pestaña.</p>
+            <p>Este nombre aparecerá en el menú y en la pestaña. También lo recordaremos para documentos que no incluyan uno.</p>
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar"><X size={20} /></button>
         </div>
@@ -967,9 +1054,11 @@ export default function App() {
   const importPlan = async (parsed) => {
     await clearActionImages().catch(() => {})
     const importedGoals = prepareGoals(parsed.goals)
+    const ownerName = parsed.ownerName?.trim() || loadProfileName() || plan.ownerName?.trim() || ''
+    if (parsed.ownerName?.trim()) rememberProfileName(parsed.ownerName)
     setPlan({
       title: parsed.title,
-      ownerName: parsed.ownerName,
+      ownerName,
       contract: parsed.contract,
       sourceName: parsed.title,
       parserVersion: parsed.parserVersion,
@@ -981,10 +1070,11 @@ export default function App() {
     setQuery('')
     setOpenGoals(new Set())
     setCollapsedCategories(new Set())
-    if (!parsed.ownerName?.trim()) setNameEditOpen(true)
+    if (!ownerName) setNameEditOpen(true)
   }
 
   const updateOwnerName = (ownerName) => {
+    rememberProfileName(ownerName)
     setPlan((current) => ({ ...current, ownerName }))
   }
 
@@ -1038,6 +1128,48 @@ export default function App() {
         return { ...goal, completed: false, tasks: [...goal.tasks, task] }
       }),
     }))
+  }
+
+  const addTaskImages = async (goalId, taskId, files) => {
+    const selectedFiles = Array.from(files || [])
+    const invalidFile = selectedFiles.find((file) => !file.type.startsWith('image/') || file.size > 8 * 1024 * 1024)
+    if (invalidFile) throw new Error('Usa imágenes de hasta 8 MB cada una.')
+
+    const currentTask = plan.goals.find((goal) => goal.id === goalId)?.tasks.find((task) => task.id === taskId)
+    if (!currentTask) throw new Error('No encontramos esta acción.')
+
+    const availableSlots = Math.max(0, 4 - (currentTask.attachments?.length || 0))
+    if (!availableSlots) throw new Error('Puedes guardar hasta 4 imágenes por acción.')
+
+    const additions = selectedFiles.slice(0, availableSlots).map((file) => ({
+      id: globalThis.crypto?.randomUUID?.() || `imagen-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      file,
+    }))
+    const savedIds = []
+
+    try {
+      for (const image of additions) {
+        await saveActionImage(image.id, image.file)
+        savedIds.push(image.id)
+      }
+    } catch (error) {
+      await Promise.all(savedIds.map((id) => deleteActionImage(id).catch(() => {})))
+      throw error
+    }
+
+    const attachmentMetadata = additions.map(({ id, file }) => ({ id, name: file.name, type: file.type, size: file.size }))
+    setPlan((current) => ({
+      ...current,
+      goals: current.goals.map((goal) => goal.id === goalId ? {
+        ...goal,
+        tasks: goal.tasks.map((task) => task.id === taskId ? {
+          ...task,
+          attachments: [...(task.attachments || []), ...attachmentMetadata],
+        } : task),
+      } : goal),
+    }))
+
+    return { saved: additions.length, skipped: Math.max(0, selectedFiles.length - additions.length) }
   }
 
   const downloadBackup = () => {
@@ -1211,6 +1343,7 @@ export default function App() {
                           onEditGoal={setGoalEditor}
                           onAddTask={(selectedGoal) => setActionEditor({ goal: selectedGoal, task: null })}
                           onEditTask={(selectedGoal, task) => setActionEditor({ goal: selectedGoal, task })}
+                          onAddTaskImages={addTaskImages}
                           open={openGoals.has(goal.id)}
                           onToggleOpen={toggleOpen}
                         />

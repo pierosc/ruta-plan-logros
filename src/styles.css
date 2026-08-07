@@ -471,6 +471,15 @@ h1, h2, h3, p { margin-top: 0; }
 .task-checkbox { width: 19px; height: 19px; display: grid; place-items: center; margin-top: 1px; border: 1.5px solid #cecbd0; border-radius: 6px; color: transparent; }
 .task-toggle input:focus-visible + .task-checkbox { outline: 3px solid rgba(103, 88, 217, 0.2); outline-offset: 2px; }
 .task-edit-button { width: 28px; height: 28px; border-radius: 7px; }
+.task-row-actions { position: relative; display: flex; align-items: center; gap: 4px; }
+.quick-image-upload { position: relative; }
+.task-image-button { min-height: 28px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 8px; border: 1px solid #ded8fb; border-radius: 8px; background: #f5f2ff; color: var(--primary-dark); font: inherit; font-size: 8.8px; font-weight: 800; cursor: pointer; transition: 130ms ease; }
+.task-image-button:hover { border-color: #c9c0f8; background: #eae5ff; color: var(--primary); transform: translateY(-1px); }
+.task-image-button:disabled { border-color: #e6e3eb; background: #f5f4f7; color: #aaa6b1; cursor: not-allowed; transform: none; }
+.quick-image-feedback { position: absolute; z-index: 8; top: calc(100% + 7px); right: 0; width: max-content; max-width: 190px; padding: 7px 9px; border: 1px solid #d9d3f4; border-radius: 8px; background: white; color: #675f86; box-shadow: 0 8px 24px rgba(48,42,76,.14); font-size: 8.2px; font-weight: 700; line-height: 1.35; }
+.quick-image-feedback.error { border-color: #f0cbd2; background: #fff7f8; color: #ae5362; }
+.inline-media-notice { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: #9996a2; font-size: 8.4px; line-height: 1.4; }
+.inline-media-notice svg { flex: 0 0 auto; color: #63a184; }
 .task-completed .task-checkbox { border-color: #53a783; background: #53a783; color: white; }
 .task-copy { display: grid; gap: 6px; color: #5a5e6b; font-size: 11.5px; line-height: 1.48; }
 .task-copy small { display: flex; align-items: center; gap: 4px; color: #9a9ca6; font-size: 9.5px; }
@@ -703,6 +712,9 @@ h1, h2, h3, p { margin-top: 0; }
   .action-media-heading { align-items: flex-start; }
   .action-media-heading > button { padding-inline: 8px; }
   .task-attachments { margin-left: 0; }
+  .task-row { grid-template-columns: minmax(0, 1fr); }
+  .task-row-actions { justify-content: flex-end; }
+  .task-image-button { min-height: 31px; padding-inline: 10px; font-size: 9.3px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
