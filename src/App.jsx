@@ -37,7 +37,7 @@ import { DEFAULT_PLAN, DEFAULT_PLAN_TITLE } from './data/defaultPlan.js'
 import { DOCUMENT_PARSER_VERSION, readPlanDocument } from './utils/documentParser.js'
 
 const STORAGE_KEY = 'ruta-logros-state-v1'
-const DEFAULT_CONTRACT = 'Yo soy una mujer valiente, segura y libre.'
+const EMPTY_PLAN_TITLE = 'Mi Plan de Logros'
 
 const CATEGORY_STYLES = [
   { match: 'familia', label: 'Familia', color: '#e46f87', soft: '#fff0f3', Icon: Users },
@@ -81,21 +81,34 @@ const prepareGoals = (goals, prefix = '') =>
   })
 
 const createDefaultState = () => ({
-  title: DEFAULT_PLAN_TITLE,
+  title: EMPTY_PLAN_TITLE,
   ownerName: '',
-  contract: DEFAULT_CONTRACT,
-  sourceName: 'Plan de Logros original',
+  contract: '',
+  sourceName: '',
   parserVersion: DOCUMENT_PARSER_VERSION,
-  goals: prepareGoals(DEFAULT_PLAN),
+  goals: [],
   updatedAt: new Date().toISOString(),
 })
 
 const loadState = () => {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY))
-    if (saved?.goals?.length) return { ...saved, goals: prepareGoals(saved.goals) }
+    const isUntouchedExamplePlan = (
+      saved?.sourceName === 'Plan de Logros original'
+      && saved?.title === DEFAULT_PLAN_TITLE
+      && saved?.goals?.length === DEFAULT_PLAN.length
+      && saved.goals.every((goal, index) => (
+        goal.meta === DEFAULT_PLAN[index]?.meta
+        && !goal.completed
+        && !goal.note
+        && (goal.tasks || []).every((task) => !task.completed)
+      ))
+    )
+
+    if (isUntouchedExamplePlan) return createDefaultState()
+    if (Array.isArray(saved?.goals)) return { ...saved, goals: prepareGoals(saved.goals) }
   } catch {
-    // If a previous local backup is corrupt, the original plan is restored safely.
+    // If a previous local backup is corrupt, start with a clean workspace.
   }
   return createDefaultState()
 }
@@ -118,7 +131,7 @@ const isOverdue = (goal) => {
 
 const capitalize = (value) => value.charAt(0).toUpperCase() + value.slice(1)
 
-function Sidebar({ personName, categories, selectedCategory, onSelectCategory, onEditName, onImport, onBackup, onReset, stats }) {
+function Sidebar({ personName, categories, selectedCategory, onSelectCategory, onEditName, onImport, onBackup, onReset, stats, hasPlan }) {
   return (
     <aside className="sidebar">
       <button className="brand brand-button" onClick={onEditName} aria-label={`Editar nombre: ${personName}`}>
@@ -168,15 +181,17 @@ function Sidebar({ personName, categories, selectedCategory, onSelectCategory, o
         <button className="import-card" onClick={onImport}>
           <span className="import-card-icon"><Upload size={19} /></span>
           <span>
-            <strong>Importar otro plan</strong>
+            <strong>{hasPlan ? 'Importar otro plan' : 'Importar mi plan'}</strong>
             <small>Word o PDF</small>
           </span>
           <ArrowRight size={17} />
         </button>
-        <div className="utility-actions">
-          <button onClick={onBackup}><Download size={15} /> Respaldo</button>
-          <button onClick={onReset}><RotateCcw size={15} /> Restaurar</button>
-        </div>
+        {hasPlan && (
+          <div className="utility-actions">
+            <button onClick={onBackup}><Download size={15} /> Respaldo</button>
+            <button onClick={onReset}><RotateCcw size={15} /> Vaciar</button>
+          </div>
+        )}
         <div className="local-note">
           <ShieldCheck size={16} />
           <span>Tus datos permanecen en este dispositivo.</span>
@@ -607,14 +622,62 @@ function CreatorCredit({ open, onToggle }) {
       </button>
       {open && (
         <div className="creator-popover" role="status">
-          <span>Este espacio fue creado por</span>
-          <strong>Val</strong>
-          <a href="https://www.instagram.com/vale_null/" target="_blank" rel="noreferrer">
-            <Instagram size={15} /> @vale_null
-          </a>
+          <div className="creator-portrait">
+            <img src={`${import.meta.env.BASE_URL}val-avatar.jpeg`} alt="Ilustración de Val" />
+            <span className="creator-spark"><Sparkles size={15} /></span>
+          </div>
+          <div className="creator-copy">
+            <span className="creator-kicker">Un pequeño secreto ✦</span>
+            <strong>Hecho con cariño por Val</strong>
+            <p>Para convertir sueños grandes en pasos que sí se pueden celebrar.</p>
+            <a href="https://www.instagram.com/vale_null/" target="_blank" rel="noreferrer">
+              <Instagram size={15} /> @vale_null
+            </a>
+          </div>
         </div>
       )}
     </div>
+  )
+}
+
+function EmptyPlanWelcome({ onImport, onNewGoal }) {
+  return (
+    <section className="empty-plan-welcome" id="goals" aria-labelledby="empty-plan-title">
+      <div className="empty-plan-visual" aria-hidden="true">
+        <span className="empty-plan-glow" />
+        <div className="floating-document floating-document-back">
+          <span /><span /><span />
+        </div>
+        <div className="floating-document floating-document-front">
+          <span className="document-icon"><FileText size={30} /></span>
+          <span className="document-line document-line-long" />
+          <span className="document-line" />
+          <span className="document-line document-line-short" />
+          <span className="document-check"><Check size={15} strokeWidth={3} /></span>
+        </div>
+        <span className="empty-spark empty-spark-one"><Sparkles size={22} /></span>
+        <span className="empty-spark empty-spark-two"><Sparkles size={15} /></span>
+      </div>
+
+      <div className="empty-plan-copy">
+        <span className="empty-plan-kicker"><Sparkles size={15} /> Tu espacio está listo</span>
+        <h2 id="empty-plan-title">Tu ruta empieza<br />con tu documento.</h2>
+        <p>Sube tu Plan de Logros y organizaremos automáticamente cada área, meta, acción y fecha en un checklist personal.</p>
+        <div className="empty-plan-actions">
+          <button className="primary-button empty-import-button" onClick={onImport}><Upload size={18} /> Importar mi plan</button>
+          <button className="secondary-button" onClick={onNewGoal}><Plus size={18} /> Crear manualmente</button>
+        </div>
+        <div className="empty-plan-trust">
+          <span><FileText size={15} /> Word o PDF</span>
+          <span><ShieldCheck size={15} /> Solo en este dispositivo</span>
+        </div>
+        <ol className="empty-plan-steps">
+          <li><strong>1</strong><span>Sube tu archivo</span></li>
+          <li><strong>2</strong><span>Revisa tus logros</span></li>
+          <li><strong>3</strong><span>Avanza a tu ritmo</span></li>
+        </ol>
+      </div>
+    </section>
   )
 }
 
@@ -631,9 +694,10 @@ export default function App() {
   const [actionEditor, setActionEditor] = useState(null)
   const [creatorOpen, setCreatorOpen] = useState(false)
   const [saveStatus, setSaveStatus] = useState('saved')
+  const hasPlan = plan.goals.length > 0
   const personName = plan.ownerName?.trim() || 'Tu nombre'
-  const contractTitle = plan.contract?.trim() || 'Mi Plan de Logros'
-  const needsReimport = plan.sourceName !== 'Plan de Logros original' && plan.parserVersion !== DOCUMENT_PARSER_VERSION
+  const contractTitle = plan.contract?.trim() || (hasPlan ? 'Mi Plan de Logros' : 'Empieza con tu Plan de Logros')
+  const needsReimport = hasPlan && plan.sourceName !== 'Plan de Logros original' && plan.parserVersion !== DOCUMENT_PARSER_VERSION
 
   useEffect(() => {
     document.title = `${personName} · Plan de Logros`
@@ -831,7 +895,7 @@ export default function App() {
   }
 
   const resetPlan = () => {
-    if (!window.confirm('¿Restaurar el plan original? Se reemplazarán los checks y notas guardados en este navegador.')) return
+    if (!window.confirm('¿Vaciar este plan? Se eliminarán sus logros, checks y notas guardados en este navegador.')) return
     setPlan(createDefaultState())
     setSelectedCategory('all')
     setStatusFilter('all')
@@ -855,13 +919,14 @@ export default function App() {
         onBackup={downloadBackup}
         onReset={resetPlan}
         stats={stats}
+        hasPlan={hasPlan}
       />
 
       <main className="main-content">
         <div className="content-wrap">
           <header className="page-header">
             <div className="appbar-contract">
-              <p className="today-label"><span>Mi contrato</span> · {dateLabel}</p>
+              <p className="today-label"><span>{hasPlan ? 'Mi contrato' : 'Bienvenida'}</span> · {dateLabel}</p>
               <h1 title={contractTitle}>{contractTitle}</h1>
             </div>
             <div className="header-actions">
@@ -887,6 +952,7 @@ export default function App() {
             </section>
           )}
 
+          {hasPlan ? <>
           <section className="hero-card" aria-label="Resumen de progreso">
             <div className="hero-copy">
               <span className="hero-kicker"><Sparkles size={15} /> Tu progreso</span>
@@ -1005,6 +1071,9 @@ export default function App() {
               </div>
             )}
           </section>
+          </> : (
+            <EmptyPlanWelcome onImport={() => setImportOpen(true)} onNewGoal={openNewGoal} />
+          )}
         </div>
       </main>
 
