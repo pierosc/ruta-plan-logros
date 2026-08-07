@@ -18,6 +18,7 @@ import {
   Leaf,
   ListChecks,
   LoaderCircle,
+  Pencil,
   Plus,
   RotateCcw,
   Search,
@@ -113,13 +114,14 @@ const isOverdue = (goal) => {
 
 const capitalize = (value) => value.charAt(0).toUpperCase() + value.slice(1)
 
-function Sidebar({ personName, categories, selectedCategory, onSelectCategory, onImport, onBackup, onReset, stats }) {
+function Sidebar({ personName, categories, selectedCategory, onSelectCategory, onEditName, onImport, onBackup, onReset, stats }) {
   return (
     <aside className="sidebar">
-      <div className="brand">
+      <button className="brand brand-button" onClick={onEditName} aria-label={`Editar nombre: ${personName}`}>
         <span className="brand-mark"><Check size={20} strokeWidth={3} /></span>
         <span title={personName}>{personName}</span>
-      </div>
+        <Pencil className="brand-edit-icon" size={14} />
+      </button>
 
       <nav className="side-nav" aria-label="Navegación principal">
         <p className="nav-label">Mi espacio</p>
@@ -300,9 +302,8 @@ function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, open, onTogg
   )
 }
 
-function ImportModal({ currentOwnerName, onClose, onImport }) {
+function ImportModal({ onClose, onImport }) {
   const [file, setFile] = useState(null)
-  const [personName, setPersonName] = useState(currentOwnerName || '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const inputRef = useRef(null)
@@ -326,11 +327,7 @@ function ImportModal({ currentOwnerName, onClose, onImport }) {
     setError('')
     try {
       const parsed = await readPlanDocument(file)
-      const ownerName = personName.trim() || parsed.ownerName?.trim()
-      if (!ownerName) {
-        setError('Escribe el nombre de la persona a quien pertenece este plan.')
-        return
-      }
+      const ownerName = parsed.ownerName?.trim() || ''
       onImport({ ...parsed, ownerName })
       onClose()
     } catch (importError) {
@@ -352,21 +349,7 @@ function ImportModal({ currentOwnerName, onClose, onImport }) {
           <button className="icon-button" onClick={onClose} aria-label="Cerrar"><X size={20} /></button>
         </div>
 
-        <label className="person-field">
-          <span>Nombre de la persona</span>
-          <div>
-            <UserRound size={17} />
-            <input
-              type="text"
-              value={personName}
-              onChange={(event) => setPersonName(event.target.value)}
-              placeholder="Ej. Andrea"
-              maxLength={60}
-              autoComplete="name"
-            />
-          </div>
-          <small>Se mostrará en el menú y en la pestaña. Si el documento lo incluye, podemos detectarlo.</small>
-        </label>
+        <div className="name-detection-note"><UserRound size={17} /> El nombre se leerá del campo “Nombre” del documento.</div>
 
         <div
           className={`drop-zone ${file ? 'has-file' : ''}`}
@@ -416,6 +399,60 @@ function ImportModal({ currentOwnerName, onClose, onImport }) {
   )
 }
 
+function EditNameModal({ currentName, onClose, onSave }) {
+  const [name, setName] = useState(currentName === 'Tu nombre' ? '' : currentName)
+  const [error, setError] = useState('')
+
+  const submit = (event) => {
+    event.preventDefault()
+    const nextName = name.trim()
+    if (!nextName) {
+      setError('Escribe un nombre para continuar.')
+      return
+    }
+    onSave(nextName)
+    onClose()
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <form className="import-modal name-modal" role="dialog" aria-modal="true" aria-labelledby="edit-name-title" onSubmit={submit}>
+        <div className="modal-header">
+          <div>
+            <span className="modal-kicker">Perfil del plan</span>
+            <h2 id="edit-name-title">Editar nombre</h2>
+            <p>Este nombre aparecerá en el menú y en la pestaña.</p>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar"><X size={20} /></button>
+        </div>
+        <label className="person-field">
+          <span>Nombre de la persona</span>
+          <div>
+            <UserRound size={17} />
+            <input
+              type="text"
+              value={name}
+              onChange={(event) => {
+                setName(event.target.value)
+                setError('')
+              }}
+              placeholder="Ej. Jackielyn"
+              maxLength={60}
+              autoComplete="name"
+              autoFocus
+            />
+          </div>
+        </label>
+        {error && <div className="modal-error"><AlertCircle size={16} /> {error}</div>}
+        <div className="modal-actions">
+          <button className="secondary-button" type="button" onClick={onClose}>Cancelar</button>
+          <button className="primary-button" type="submit"><Check size={18} /> Guardar nombre</button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 export default function App() {
   const [plan, setPlan] = useState(loadState)
   const [selectedCategory, setSelectedCategory] = useState('all')
@@ -424,6 +461,7 @@ export default function App() {
   const [openGoals, setOpenGoals] = useState(() => new Set())
   const [collapsedCategories, setCollapsedCategories] = useState(() => new Set())
   const [importOpen, setImportOpen] = useState(false)
+  const [nameEditOpen, setNameEditOpen] = useState(false)
   const [saveStatus, setSaveStatus] = useState('saved')
   const personName = plan.ownerName?.trim() || 'Tu nombre'
 
@@ -556,6 +594,10 @@ export default function App() {
     setCollapsedCategories(new Set())
   }
 
+  const updateOwnerName = (ownerName) => {
+    setPlan((current) => ({ ...current, ownerName }))
+  }
+
   const downloadBackup = () => {
     const blob = new Blob([JSON.stringify(plan, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -586,6 +628,7 @@ export default function App() {
         categories={categories}
         selectedCategory={selectedCategory}
         onSelectCategory={setSelectedCategory}
+        onEditName={() => setNameEditOpen(true)}
         onImport={() => setImportOpen(true)}
         onBackup={downloadBackup}
         onReset={resetPlan}
@@ -593,7 +636,11 @@ export default function App() {
       />
 
       <header className="mobile-header">
-        <div className="brand"><span className="brand-mark"><Check size={18} strokeWidth={3} /></span><span title={personName}>{personName}</span></div>
+        <button className="brand brand-button" onClick={() => setNameEditOpen(true)} aria-label={`Editar nombre: ${personName}`}>
+          <span className="brand-mark"><Check size={18} strokeWidth={3} /></span>
+          <span title={personName}>{personName}</span>
+          <Pencil className="brand-edit-icon" size={13} />
+        </button>
         <button className="icon-button" onClick={() => setImportOpen(true)} aria-label="Importar documento"><Upload size={19} /></button>
       </header>
 
@@ -738,7 +785,8 @@ export default function App() {
         <button className="bottom-import" onClick={() => setImportOpen(true)}><Upload size={21} /><span>Importar</span></button>
       </nav>
 
-      {importOpen && <ImportModal currentOwnerName={plan.ownerName} onClose={() => setImportOpen(false)} onImport={importPlan} />}
+      {importOpen && <ImportModal onClose={() => setImportOpen(false)} onImport={importPlan} />}
+      {nameEditOpen && <EditNameModal currentName={personName} onClose={() => setNameEditOpen(false)} onSave={updateOwnerName} />}
     </div>
   )
 }

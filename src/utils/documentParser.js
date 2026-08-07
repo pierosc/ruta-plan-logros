@@ -20,7 +20,7 @@ const extractOwnerName = (rawText) => {
     .slice(0, 80)
 
   const patterns = [
-    /^(?:nombre(?:\s+y\s+apellidos)?|participante|cliente|persona|titular)\s*[:-]\s*(.+)$/i,
+    /^(?:nombre(?:\s+y\s+apellidos)?|participante|cliente|persona|titular)\s*(?::|-|\t)\s*(.+)$/i,
     /^plan\s+de\s+logros(?:\s+de|\s*[:-])\s*(.+)$/i,
     /^elaborado\s+por\s*[:-]\s*(.+)$/i,
   ]
@@ -171,36 +171,113 @@ async function extractPdfText(arrayBuffer) {
   const loadingTask = getDocument({ data: new Uint8Array(arrayBuffer) })
   const pdf = await loadingTask.promise
   const pages = []
+  let ownerName = ''
+
+  const sectionLabels = new Set(['meta', 'ser', 'hacer', 'tener'])
+  const isCategory = (value) => /^\d+\.\s*.+[.:]?$/i.test(value)
+  const isGoal = (value) => /^LOGRO\s*\d+/i.test(value)
+  const joinParts = (parts) => clean(parts.join(' ')).replace(/\s+([.,;:!?])/g, '$1')
+
+  const sectionRowsFromItems = (label, labelItem, block, dateThreshold, checkThreshold) => {
+    const contentThreshold = labelItem.x + 20
+
+    if (label !== 'hacer') {
+      const contentParts = []
+      const dueParts = []
+      block.forEach((item) => {
+        if (!item.value || item.x >= checkThreshold || item.x < contentThreshold) return
+        if (item.x >= dateThreshold) dueParts.push(item.value)
+        else contentParts.push(item.value)
+      })
+      const content = joinParts(contentParts)
+      const due = joinParts(dueParts)
+      return content ? [`${labelItem.value}\t${content}${due ? `\t${due}` : ''}`] : []
+    }
+
+    const tasks = []
+    let taskParts = []
+    let dueParts = []
+    const finishTask = () => {
+      const text = joinParts(taskParts)
+      const due = joinParts(dueParts)
+      if (text) tasks.push({ text, due })
+      taskParts = []
+      dueParts = []
+    }
+
+    block.forEach((item) => {
+      if (!item.value || item.x >= checkThreshold || item.x < contentThreshold) return
+      if (item.x >= dateThreshold) {
+        dueParts.push(item.value)
+        return
+      }
+      if ((dueParts.length && taskParts.length) || (/^acci[oó]n\s*\d+/i.test(item.value) && taskParts.length)) {
+        finishTask()
+      }
+      taskParts.push(item.value)
+    })
+    finishTask()
+
+    return tasks.map((task, index) => `${index === 0 ? labelItem.value : ''}\t${task.text}${task.due ? `\t${task.due}` : ''}`)
+  }
 
   try {
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
       const page = await pdf.getPage(pageNumber)
       const content = await page.getTextContent()
-      const rows = []
+      const items = content.items
+        .filter((item) => item.transform)
+        .map((item) => ({ value: clean(item.str), x: item.transform[4], y: item.transform[5] }))
 
-      content.items.forEach((item) => {
-        const value = clean(item.str)
-        if (!value || !item.transform) return
-        const x = item.transform[4]
-        const y = item.transform[5]
-        let row = rows.find((candidate) => Math.abs(candidate.y - y) <= 2)
-        if (!row) {
-          row = { y, items: [] }
-          rows.push(row)
+      if (!ownerName) {
+        const nameIndex = items.findIndex((item) => item.value.toLocaleLowerCase('es') === 'nombre')
+        if (nameIndex >= 0) {
+          const label = items[nameIndex]
+          const candidate = items.slice(nameIndex + 1).find((item) => (
+            item.value
+            && item.x > label.x + 20
+            && Math.abs(item.y - label.y) <= 20
+          ))
+          if (candidate) ownerName = candidate.value
         }
-        row.items.push({ x, value })
-      })
+      }
 
-      pages.push(rows
-        .sort((a, b) => b.y - a.y)
-        .map((row) => row.items.sort((a, b) => a.x - b.x).map((item) => item.value).join('\t'))
-        .join('\n'))
+      const fechaItem = items.find((item) => item.value.toLocaleLowerCase('es') === 'fecha')
+      const checkItem = items.find((item) => item.value.toLocaleLowerCase('es') === 'check')
+      const dateThreshold = fechaItem ? fechaItem.x - 25 : Number.POSITIVE_INFINITY
+      const checkThreshold = checkItem ? checkItem.x - 10 : Number.POSITIVE_INFINITY
+      const semanticRows = []
+
+      for (let index = 0; index < items.length; index += 1) {
+        const item = items[index]
+        const normalized = item.value.toLocaleLowerCase('es')
+
+        if (isCategory(item.value) || isGoal(item.value)) {
+          semanticRows.push(item.value)
+          continue
+        }
+
+        if (!sectionLabels.has(normalized)) continue
+
+        let end = index + 1
+        while (end < items.length) {
+          const nextValue = items[end].value
+          const nextNormalized = nextValue.toLocaleLowerCase('es')
+          if (sectionLabels.has(nextNormalized) || isCategory(nextValue) || isGoal(nextValue)) break
+          end += 1
+        }
+
+        semanticRows.push(...sectionRowsFromItems(normalized, item, items.slice(index + 1, end), dateThreshold, checkThreshold))
+        index = end - 1
+      }
+
+      pages.push(semanticRows.join('\n'))
     }
   } finally {
     await loadingTask.destroy()
   }
 
-  return pages.join('\n')
+  return `${ownerName ? `Nombre: ${ownerName}\n` : ''}${pages.join('\n')}`
 }
 
 async function extractLegacyDoc(arrayBuffer) {
