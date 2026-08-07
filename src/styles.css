@@ -64,6 +64,7 @@ textarea:focus-visible,
   font-weight: 800;
   letter-spacing: -0.7px;
 }
+.brand > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .brand-mark {
   width: 34px;
@@ -444,6 +445,13 @@ h1, h2, h3, p { margin-top: 0; }
 .drop-zone strong { color: #414554; font-size: 13px; }
 .drop-zone span { color: #858895; font-size: 11px; }
 .drop-zone small { margin-top: 3px; color: #aaa9b1; font-size: 9.5px; }
+.person-field { display: grid; gap: 7px; }
+.person-field > span { color: #555967; font-size: 11px; font-weight: 700; }
+.person-field > div { display: flex; align-items: center; gap: 9px; min-height: 43px; padding: 0 12px; border: 1px solid var(--border); border-radius: 11px; background: #fff; color: #898493; transition: border-color 150ms ease, box-shadow 150ms ease; }
+.person-field > div:focus-within { border-color: #a99eea; box-shadow: 0 0 0 3px rgba(103, 88, 217, 0.1); }
+.person-field input { width: 100%; border: 0; outline: 0; background: transparent; color: #353242; font: inherit; font-size: 12px; }
+.person-field input::placeholder { color: #aaa7b1; }
+.person-field small { color: #92909b; font-size: 9.5px; line-height: 1.4; }
 .replace-plan-note { display: flex; align-items: flex-start; gap: 10px; padding: 12px 13px; border: 1px solid #ded9fb; border-radius: 11px; background: #faf9ff; color: #5950a7; }
 .replace-plan-note svg { flex: 0 0 auto; margin-top: 1px; }
 .replace-plan-note span { display: grid; gap: 3px; }

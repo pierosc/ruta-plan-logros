@@ -26,6 +26,7 @@ import {
   StickyNote,
   Target,
   Upload,
+  UserRound,
   Users,
   WalletCards,
   X,
@@ -78,6 +79,7 @@ const prepareGoals = (goals, prefix = '') =>
 
 const createDefaultState = () => ({
   title: DEFAULT_PLAN_TITLE,
+  ownerName: '',
   sourceName: 'Plan de Logros original',
   goals: prepareGoals(DEFAULT_PLAN),
   updatedAt: new Date().toISOString(),
@@ -111,12 +113,12 @@ const isOverdue = (goal) => {
 
 const capitalize = (value) => value.charAt(0).toUpperCase() + value.slice(1)
 
-function Sidebar({ categories, selectedCategory, onSelectCategory, onImport, onBackup, onReset, stats }) {
+function Sidebar({ personName, categories, selectedCategory, onSelectCategory, onImport, onBackup, onReset, stats }) {
   return (
     <aside className="sidebar">
       <div className="brand">
         <span className="brand-mark"><Check size={20} strokeWidth={3} /></span>
-        <span>ruta</span>
+        <span title={personName}>{personName}</span>
       </div>
 
       <nav className="side-nav" aria-label="Navegación principal">
@@ -161,7 +163,7 @@ function Sidebar({ categories, selectedCategory, onSelectCategory, onImport, onB
           <span className="import-card-icon"><Upload size={19} /></span>
           <span>
             <strong>Importar otro plan</strong>
-            <small>Word .doc o .docx</small>
+            <small>Word o PDF</small>
           </span>
           <ArrowRight size={17} />
         </button>
@@ -298,16 +300,17 @@ function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, open, onTogg
   )
 }
 
-function ImportModal({ onClose, onImport }) {
+function ImportModal({ currentOwnerName, onClose, onImport }) {
   const [file, setFile] = useState(null)
+  const [personName, setPersonName] = useState(currentOwnerName || '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const inputRef = useRef(null)
 
   const chooseFile = (selected) => {
     if (!selected) return
-    if (!/\.(docx?|txt)$/i.test(selected.name)) {
-      setError('Selecciona un documento .doc, .docx o .txt.')
+    if (!/\.(docx?|pdf|txt)$/i.test(selected.name)) {
+      setError('Selecciona un documento Word .doc, .docx o PDF .pdf.')
       return
     }
     setFile(selected)
@@ -323,7 +326,12 @@ function ImportModal({ onClose, onImport }) {
     setError('')
     try {
       const parsed = await readPlanDocument(file)
-      onImport(parsed)
+      const ownerName = personName.trim() || parsed.ownerName?.trim()
+      if (!ownerName) {
+        setError('Escribe el nombre de la persona a quien pertenece este plan.')
+        return
+      }
+      onImport({ ...parsed, ownerName })
       onClose()
     } catch (importError) {
       setError(importError.message || 'No se pudo leer el documento.')
@@ -344,6 +352,22 @@ function ImportModal({ onClose, onImport }) {
           <button className="icon-button" onClick={onClose} aria-label="Cerrar"><X size={20} /></button>
         </div>
 
+        <label className="person-field">
+          <span>Nombre de la persona</span>
+          <div>
+            <UserRound size={17} />
+            <input
+              type="text"
+              value={personName}
+              onChange={(event) => setPersonName(event.target.value)}
+              placeholder="Ej. Andrea"
+              maxLength={60}
+              autoComplete="name"
+            />
+          </div>
+          <small>Se mostrará en el menú y en la pestaña. Si el documento lo incluye, podemos detectarlo.</small>
+        </label>
+
         <div
           className={`drop-zone ${file ? 'has-file' : ''}`}
           onDragOver={(event) => event.preventDefault()}
@@ -359,14 +383,14 @@ function ImportModal({ onClose, onImport }) {
           <input
             ref={inputRef}
             type="file"
-            accept=".doc,.docx,.txt,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            accept=".doc,.docx,.pdf,.txt,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
             onChange={(event) => chooseFile(event.target.files[0])}
             hidden
           />
           {file ? <FileText size={30} /> : <Upload size={30} />}
           <strong>{file ? file.name : 'Arrastra tu documento aquí'}</strong>
           <span>{file ? `${Math.max(1, Math.round(file.size / 1024))} KB · listo para leer` : 'o toca para buscarlo en tu dispositivo'}</span>
-          <small>Compatible con Word .doc, .docx y texto .txt</small>
+          <small>Compatible con Word .doc, .docx y PDF .pdf</small>
         </div>
 
         <div className="replace-plan-note">
@@ -401,6 +425,11 @@ export default function App() {
   const [collapsedCategories, setCollapsedCategories] = useState(() => new Set())
   const [importOpen, setImportOpen] = useState(false)
   const [saveStatus, setSaveStatus] = useState('saved')
+  const personName = plan.ownerName?.trim() || 'Tu nombre'
+
+  useEffect(() => {
+    document.title = `${personName} · Plan de Logros`
+  }, [personName])
 
   useEffect(() => {
     setSaveStatus('saving')
@@ -515,6 +544,7 @@ export default function App() {
     const importedGoals = prepareGoals(parsed.goals)
     setPlan({
       title: parsed.title,
+      ownerName: parsed.ownerName,
       sourceName: parsed.title,
       goals: importedGoals,
       updatedAt: new Date().toISOString(),
@@ -552,6 +582,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <Sidebar
+        personName={personName}
         categories={categories}
         selectedCategory={selectedCategory}
         onSelectCategory={setSelectedCategory}
@@ -562,7 +593,7 @@ export default function App() {
       />
 
       <header className="mobile-header">
-        <div className="brand"><span className="brand-mark"><Check size={18} strokeWidth={3} /></span><span>ruta</span></div>
+        <div className="brand"><span className="brand-mark"><Check size={18} strokeWidth={3} /></span><span title={personName}>{personName}</span></div>
         <button className="icon-button" onClick={() => setImportOpen(true)} aria-label="Importar documento"><Upload size={19} /></button>
       </header>
 
@@ -707,7 +738,7 @@ export default function App() {
         <button className="bottom-import" onClick={() => setImportOpen(true)}><Upload size={21} /><span>Importar</span></button>
       </nav>
 
-      {importOpen && <ImportModal onClose={() => setImportOpen(false)} onImport={importPlan} />}
+      {importOpen && <ImportModal currentOwnerName={plan.ownerName} onClose={() => setImportOpen(false)} onImport={importPlan} />}
     </div>
   )
 }
