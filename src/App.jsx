@@ -283,64 +283,28 @@ function StoredActionImage({ attachment, onRemove }) {
   )
 }
 
-function QuickImageUpload({ goalId, task, onUpload }) {
-  const inputRef = useRef(null)
-  const [status, setStatus] = useState('idle')
-  const [message, setMessage] = useState('')
+function QuickImageUpload({ goal, task, onOpen }) {
   const attachmentCount = task.attachments?.length || 0
   const isFull = attachmentCount >= 4
 
-  useEffect(() => {
-    if (!message) return undefined
-    const timer = window.setTimeout(() => setMessage(''), 3200)
-    return () => window.clearTimeout(timer)
-  }, [message])
-
-  const chooseImages = async (files) => {
-    if (!files?.length) return
-    setStatus('saving')
-    setMessage('')
-    try {
-      const result = await onUpload(goalId, task.id, files)
-      setStatus('saved')
-      setMessage(result.skipped
-        ? `${result.saved} guardada${result.saved === 1 ? '' : 's'} · límite 4`
-        : result.saved === 1 ? 'Imagen guardada' : `${result.saved} imágenes guardadas`)
-    } catch (error) {
-      setStatus('error')
-      setMessage(error.message || 'No se pudo guardar')
-    } finally {
-      if (inputRef.current) inputRef.current.value = ''
-    }
-  }
-
   return (
     <div className="quick-image-upload">
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        hidden
-        onChange={(event) => chooseImages(event.target.files)}
-      />
       <button
         className="task-image-button"
         type="button"
-        onClick={() => inputRef.current?.click()}
-        disabled={status === 'saving' || isFull}
+        onClick={() => onOpen(goal, task)}
+        disabled={isFull}
         aria-label={isFull ? 'Esta acción ya tiene 4 imágenes' : `Añadir imagen a la acción: ${task.text}`}
-        title={isFull ? 'Límite de 4 imágenes. Puedes administrarlas desde Editar.' : 'Añadir evidencia desde este dispositivo'}
+        title={isFull ? 'Límite de 4 imágenes. Puedes administrarlas desde Editar.' : 'Abrir el diálogo de evidencias'}
       >
-        {status === 'saving' ? <LoaderCircle className="spin" size={14} /> : <ImagePlus size={14} />}
+        <ImagePlus size={14} />
         <span>{isFull ? '4/4' : 'Imagen'}</span>
       </button>
-      {message && <span className={`quick-image-feedback ${status}`} role="status">{message}</span>}
     </div>
   )
 }
 
-function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, onEditGoal, onAddTask, onEditTask, onAddTaskImages, onRemoveTaskImage, open, onToggleOpen }) {
+function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, onEditGoal, onAddTask, onEditTask, onOpenImageDialog, onRemoveTaskImage, open, onToggleOpen }) {
   const categoryStyle = getCategoryStyle(goal.category)
   const CategoryIcon = categoryStyle.Icon
   const progress = getGoalProgress(goal)
@@ -440,7 +404,7 @@ function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, onEditGoal, 
                       )}
                     </div>
                     <div className="task-row-actions">
-                      <QuickImageUpload goalId={goal.id} task={task} onUpload={onAddTaskImages} />
+                      <QuickImageUpload goal={goal} task={task} onOpen={onOpenImageDialog} />
                       <button className="task-edit-button" onClick={() => onEditTask(goal, task)} aria-label="Editar acción" title="Editar acción">
                         <Pencil size={14} />
                       </button>
@@ -572,6 +536,121 @@ function ImportModal({ onClose, onImport }) {
           <button className="primary-button" onClick={submit} disabled={loading || !file}>
             {loading ? <LoaderCircle className="spin" size={18} /> : <Upload size={18} />}
             {loading ? 'Leyendo documento…' : 'Importar plan'}
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function ImageImportModal({ goal, task, onClose, onSave }) {
+  const inputRef = useRef(null)
+  const previewUrlsRef = useRef(new Set())
+  const [selectedImages, setSelectedImages] = useState([])
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const availableSlots = Math.max(0, 4 - (task.attachments?.length || 0))
+
+  useEffect(() => () => {
+    previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+  }, [])
+
+  const chooseImages = (files) => {
+    const selected = Array.from(files || [])
+    if (!selected.length) return
+
+    const invalidFile = selected.find((file) => !file.type.startsWith('image/') || file.size > 8 * 1024 * 1024)
+    if (invalidFile) {
+      setError('Usa imágenes JPG, PNG o WebP de hasta 8 MB cada una.')
+      return
+    }
+
+    previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+    previewUrlsRef.current.clear()
+    const additions = selected.slice(0, availableSlots).map((file) => {
+      const previewUrl = URL.createObjectURL(file)
+      previewUrlsRef.current.add(previewUrl)
+      return { file, previewUrl }
+    })
+    setSelectedImages(additions)
+    setError(selected.length > availableSlots ? `Solo puedes agregar ${availableSlots} imagen${availableSlots === 1 ? '' : 'es'} más a esta acción.` : '')
+    if (inputRef.current) inputRef.current.value = ''
+  }
+
+  const submit = async () => {
+    if (!selectedImages.length) {
+      setError('Primero selecciona al menos una imagen.')
+      return
+    }
+
+    setSaving(true)
+    setError('')
+    try {
+      await onSave(goal.id, task.id, selectedImages.map(({ file }) => file))
+      onClose()
+    } catch (saveError) {
+      setError(saveError.message || 'No pudimos guardar las imágenes.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="import-modal image-import-modal" role="dialog" aria-modal="true" aria-labelledby="image-import-title">
+        <div className="modal-header">
+          <div>
+            <span className="modal-kicker">Evidencia local · Logro {goal.number}</span>
+            <h2 id="image-import-title">Agregar imágenes</h2>
+            <p>{task.text}</p>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar"><X size={20} /></button>
+        </div>
+
+        <div
+          className={`drop-zone image-drop-zone ${selectedImages.length ? 'has-file' : ''}`}
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => {
+            event.preventDefault()
+            chooseImages(event.dataTransfer.files)
+          }}
+          onClick={() => inputRef.current?.click()}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => (event.key === 'Enter' || event.key === ' ') && inputRef.current?.click()}
+        >
+          <input ref={inputRef} type="file" accept="image/*" multiple hidden onChange={(event) => chooseImages(event.target.files)} />
+          {selectedImages.length ? <CheckCircle2 size={31} /> : <ImagePlus size={31} />}
+          <strong>{selectedImages.length ? `${selectedImages.length} imagen${selectedImages.length === 1 ? '' : 'es'} lista${selectedImages.length === 1 ? '' : 's'}` : 'Arrastra tus imágenes aquí'}</strong>
+          <span>{selectedImages.length ? 'Toca aquí si quieres cambiar la selección' : 'o toca para buscarlas en tu dispositivo'}</span>
+          <small>JPG, PNG o WebP · máximo 8 MB · {availableSlots} espacio{availableSlots === 1 ? '' : 's'} disponible{availableSlots === 1 ? '' : 's'}</small>
+        </div>
+
+        {!!selectedImages.length && (
+          <div className="image-selection-grid" aria-label="Vista previa de las imágenes seleccionadas">
+            {selectedImages.map(({ file, previewUrl }) => (
+              <figure key={`${file.name}-${file.lastModified}`}>
+                <img src={previewUrl} alt={file.name} />
+                <figcaption title={file.name}>{file.name}</figcaption>
+              </figure>
+            ))}
+          </div>
+        )}
+
+        <div className="media-local-notice image-dialog-notice">
+          <HardDrive size={18} />
+          <span>
+            <strong>Se guarda una copia en este navegador.</strong>
+            Mover o eliminar el archivo original no la afecta. La imagen sí desaparecerá si borras los datos del sitio, cambias de navegador o usas otro dispositivo. No se sube a internet ni se incluye en el respaldo JSON.
+          </span>
+        </div>
+
+        {error && <div className="modal-error"><AlertCircle size={16} /> {error}</div>}
+        <div className="modal-actions image-dialog-actions">
+          <button className="secondary-button" type="button" onClick={onClose} disabled={saving}>Cancelar</button>
+          <button className="primary-button" type="button" onClick={submit} disabled={saving || !selectedImages.length}>
+            {saving ? <LoaderCircle className="spin" size={18} /> : <ImagePlus size={18} />}
+            {saving ? 'Guardando…' : 'Guardar imágenes'}
           </button>
         </div>
       </section>
@@ -937,6 +1016,7 @@ export default function App() {
   const [nameEditOpen, setNameEditOpen] = useState(false)
   const [goalEditor, setGoalEditor] = useState(null)
   const [actionEditor, setActionEditor] = useState(null)
+  const [imageImporter, setImageImporter] = useState(null)
   const [creatorOpen, setCreatorOpen] = useState(false)
   const [saveStatus, setSaveStatus] = useState('saved')
   const hasPlan = plan.goals.length > 0
@@ -1374,7 +1454,7 @@ export default function App() {
                           onEditGoal={setGoalEditor}
                           onAddTask={(selectedGoal) => setActionEditor({ goal: selectedGoal, task: null })}
                           onEditTask={(selectedGoal, task) => setActionEditor({ goal: selectedGoal, task })}
-                          onAddTaskImages={addTaskImages}
+                          onOpenImageDialog={(selectedGoal, task) => setImageImporter({ goal: selectedGoal, task })}
                           onRemoveTaskImage={removeTaskImage}
                           open={openGoals.has(goal.id)}
                           onToggleOpen={toggleOpen}
@@ -1410,6 +1490,7 @@ export default function App() {
       {nameEditOpen && <EditNameModal currentName={personName} onClose={() => setNameEditOpen(false)} onSave={updateOwnerName} />}
       {goalEditor && <GoalEditorModal initialGoal={goalEditor} categories={categories.map((category) => category.name)} getNextNumber={getNextGoalNumber} onClose={() => setGoalEditor(null)} onSave={saveGoal} />}
       {actionEditor && <ActionEditorModal goal={actionEditor.goal} task={actionEditor.task} onClose={() => setActionEditor(null)} onSave={saveAction} />}
+      {imageImporter && <ImageImportModal goal={imageImporter.goal} task={imageImporter.task} onClose={() => setImageImporter(null)} onSave={addTaskImages} />}
     </div>
   )
 }
