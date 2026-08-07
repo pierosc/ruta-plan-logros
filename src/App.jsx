@@ -10,23 +10,29 @@ import {
   Circle,
   Clock3,
   Download,
+  Eye,
   FileText,
   HandHeart,
   HardDrive,
   HeartPulse,
   Home,
   ImagePlus,
+  Image as ImageIcon,
   Instagram,
+  Layers3,
   Leaf,
   ListChecks,
   LoaderCircle,
+  Moon,
   Pencil,
   Plus,
   RotateCcw,
   Search,
+  Settings2,
   ShieldCheck,
   Sparkles,
   StickyNote,
+  Sun,
   Target,
   Trash2,
   Upload,
@@ -37,11 +43,48 @@ import {
 } from 'lucide-react'
 import { DEFAULT_PLAN, DEFAULT_PLAN_TITLE } from './data/defaultPlan.js'
 import { DOCUMENT_PARSER_VERSION, readPlanDocument } from './utils/documentParser.js'
-import { clearActionImages, deleteActionImage, getActionImage, saveActionImage } from './utils/localMedia.js'
+import {
+  clearActionImages,
+  deleteActionImage,
+  deleteAppearanceImage,
+  getActionImage,
+  getAppearanceImage,
+  saveActionImage,
+  saveAppearanceImage,
+} from './utils/localMedia.js'
 
 const STORAGE_KEY = 'ruta-logros-state-v1'
 const PROFILE_NAME_KEY = 'ruta-logros-profile-name'
+const APPEARANCE_KEY = 'ruta-logros-appearance-v1'
+const BACKGROUND_IMAGE_ID = 'app-background'
 const EMPTY_PLAN_TITLE = 'Mi Plan de Logros'
+const DEFAULT_APPEARANCE = {
+  theme: 'light',
+  hasBackground: false,
+  backgroundName: '',
+  backgroundOpacity: 0.26,
+  backgroundBlur: 7,
+  panelOpacity: 0.94,
+}
+
+const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, Number(value)))
+
+const loadAppearance = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(APPEARANCE_KEY))
+    if (!saved) return DEFAULT_APPEARANCE
+    return {
+      theme: saved.theme === 'dark' ? 'dark' : 'light',
+      hasBackground: Boolean(saved.hasBackground),
+      backgroundName: saved.backgroundName || '',
+      backgroundOpacity: clamp(saved.backgroundOpacity ?? DEFAULT_APPEARANCE.backgroundOpacity, 0.05, 0.85),
+      backgroundBlur: clamp(saved.backgroundBlur ?? DEFAULT_APPEARANCE.backgroundBlur, 0, 30),
+      panelOpacity: clamp(saved.panelOpacity ?? DEFAULT_APPEARANCE.panelOpacity, 0.55, 1),
+    }
+  } catch {
+    return DEFAULT_APPEARANCE
+  }
+}
 
 const CATEGORY_STYLES = [
   { match: 'familia', label: 'Familia', color: '#e46f87', soft: '#fff0f3', Icon: Users },
@@ -658,6 +701,173 @@ function ImageImportModal({ goal, task, onClose, onSave }) {
   )
 }
 
+function AppearanceSettingsModal({ appearance, backgroundUrl, onClose, onSave }) {
+  const inputRef = useRef(null)
+  const [theme, setTheme] = useState(appearance.theme)
+  const [backgroundOpacity, setBackgroundOpacity] = useState(Math.round(appearance.backgroundOpacity * 100))
+  const [backgroundBlur, setBackgroundBlur] = useState(appearance.backgroundBlur)
+  const [panelOpacity, setPanelOpacity] = useState(Math.round(appearance.panelOpacity * 100))
+  const [backgroundFile, setBackgroundFile] = useState(null)
+  const [previewUrl, setPreviewUrl] = useState('')
+  const [removeBackground, setRemoveBackground] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const activeBackgroundUrl = previewUrl || (!removeBackground ? backgroundUrl : '')
+
+  useEffect(() => () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl)
+  }, [previewUrl])
+
+  const selectBackground = (file) => {
+    if (!file) return
+    if (!file.type.startsWith('image/') || file.size > 12 * 1024 * 1024) {
+      setError('Selecciona una imagen de hasta 12 MB.')
+      return
+    }
+    if (previewUrl) URL.revokeObjectURL(previewUrl)
+    const nextUrl = URL.createObjectURL(file)
+    setBackgroundFile(file)
+    setPreviewUrl(nextUrl)
+    setRemoveBackground(false)
+    setError('')
+    if (inputRef.current) inputRef.current.value = ''
+  }
+
+  const clearBackground = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl)
+    setPreviewUrl('')
+    setBackgroundFile(null)
+    setRemoveBackground(true)
+    setError('')
+  }
+
+  const restoreDefaults = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl)
+    setPreviewUrl('')
+    setBackgroundFile(null)
+    setRemoveBackground(true)
+    setTheme(DEFAULT_APPEARANCE.theme)
+    setBackgroundOpacity(Math.round(DEFAULT_APPEARANCE.backgroundOpacity * 100))
+    setBackgroundBlur(DEFAULT_APPEARANCE.backgroundBlur)
+    setPanelOpacity(Math.round(DEFAULT_APPEARANCE.panelOpacity * 100))
+    setError('')
+  }
+
+  const submit = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      await onSave({
+        theme,
+        hasBackground: Boolean(backgroundFile || (appearance.hasBackground && !removeBackground)),
+        backgroundName: backgroundFile?.name || (!removeBackground ? appearance.backgroundName : ''),
+        backgroundOpacity: backgroundOpacity / 100,
+        backgroundBlur: Number(backgroundBlur),
+        panelOpacity: panelOpacity / 100,
+      }, backgroundFile, removeBackground)
+      onClose()
+    } catch (saveError) {
+      setError(saveError.message || 'No pudimos guardar la apariencia.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="import-modal appearance-modal" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
+        <div className="modal-header">
+          <div>
+            <span className="modal-kicker">Personalización</span>
+            <h2 id="appearance-title">Apariencia del espacio</h2>
+            <p>Haz que tu plan se sienta propio sin perder legibilidad.</p>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar"><X size={20} /></button>
+        </div>
+
+        <section className="settings-section" aria-labelledby="theme-setting-title">
+          <div className="settings-section-heading">
+            <span className="settings-icon"><Sun size={16} /></span>
+            <div><strong id="theme-setting-title">Tema</strong><small>Elige la iluminación general.</small></div>
+          </div>
+          <div className="theme-options">
+            <button type="button" className={theme === 'light' ? 'active' : ''} onClick={() => setTheme('light')}>
+              <Sun size={18} /><span><strong>Claro</strong><small>Suave y luminoso</small></span><Check size={15} />
+            </button>
+            <button type="button" className={theme === 'dark' ? 'active' : ''} onClick={() => setTheme('dark')}>
+              <Moon size={18} /><span><strong>Oscuro</strong><small>Descanso visual</small></span><Check size={15} />
+            </button>
+          </div>
+        </section>
+
+        <section className="settings-section" aria-labelledby="background-setting-title">
+          <div className="settings-section-heading">
+            <span className="settings-icon"><ImageIcon size={16} /></span>
+            <div><strong id="background-setting-title">Imagen de fondo</strong><small>Se guarda únicamente en este navegador.</small></div>
+          </div>
+          <input ref={inputRef} type="file" accept="image/*" hidden onChange={(event) => selectBackground(event.target.files[0])} />
+          <div className={`background-picker ${activeBackgroundUrl ? 'has-background' : ''}`}>
+            {activeBackgroundUrl ? (
+              <img src={activeBackgroundUrl} alt="Vista previa del fondo" />
+            ) : (
+              <span><ImagePlus size={24} /><small>Sin imagen personalizada</small></span>
+            )}
+            <div className="background-picker-actions">
+              <button type="button" onClick={() => inputRef.current?.click()}><Upload size={15} /> {activeBackgroundUrl ? 'Cambiar' : 'Elegir imagen'}</button>
+              {activeBackgroundUrl && <button className="danger-quiet" type="button" onClick={clearBackground}><Trash2 size={15} /> Quitar</button>}
+            </div>
+          </div>
+          <div className="settings-local-note"><HardDrive size={14} /> La imagen no se sube a internet y no viaja con el respaldo JSON.</div>
+        </section>
+
+        <section className="settings-section settings-sliders" aria-labelledby="effects-setting-title">
+          <div className="settings-section-heading">
+            <span className="settings-icon"><Layers3 size={16} /></span>
+            <div><strong id="effects-setting-title">Capas y legibilidad</strong><small>Ajusta cuánto protagonismo tiene el fondo.</small></div>
+          </div>
+          <label className="settings-slider">
+            <span><span><Eye size={15} /> Opacidad del fondo</span><strong>{backgroundOpacity}%</strong></span>
+            <input type="range" min="5" max="85" value={backgroundOpacity} onChange={(event) => setBackgroundOpacity(event.target.value)} disabled={!activeBackgroundUrl} />
+          </label>
+          <label className="settings-slider">
+            <span><span><Sparkles size={15} /> Desenfoque del fondo</span><strong>{backgroundBlur}px</strong></span>
+            <input type="range" min="0" max="30" value={backgroundBlur} onChange={(event) => setBackgroundBlur(event.target.value)} disabled={!activeBackgroundUrl} />
+          </label>
+          <label className="settings-slider">
+            <span><span><Layers3 size={15} /> Opacidad de paneles</span><strong>{panelOpacity}%</strong></span>
+            <input type="range" min="55" max="100" value={panelOpacity} onChange={(event) => setPanelOpacity(event.target.value)} />
+          </label>
+        </section>
+
+        <div
+          className={`appearance-preview ${theme === 'dark' ? 'dark' : ''}`}
+          style={{
+            '--preview-background': activeBackgroundUrl ? `url(${activeBackgroundUrl})` : 'none',
+            '--preview-background-opacity': backgroundOpacity / 100,
+            '--preview-background-blur': `${backgroundBlur}px`,
+            '--preview-panel-opacity': panelOpacity / 100,
+          }}
+        >
+          <span className="appearance-preview-background" />
+          <div className="appearance-preview-panel"><span /><strong>Vista previa</strong><small>Tus paneles seguirán siendo fáciles de leer.</small></div>
+        </div>
+
+        {error && <div className="modal-error"><AlertCircle size={16} /> {error}</div>}
+        <div className="appearance-footer">
+          <button className="restore-appearance" type="button" onClick={restoreDefaults}><RotateCcw size={15} /> Restaurar</button>
+          <div className="modal-actions">
+            <button className="secondary-button" type="button" onClick={onClose} disabled={saving}>Cancelar</button>
+            <button className="primary-button" type="button" onClick={submit} disabled={saving}>
+              {saving ? <LoaderCircle className="spin" size={18} /> : <Check size={18} />}
+              {saving ? 'Guardando…' : 'Guardar apariencia'}
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function EditNameModal({ currentName, onClose, onSave }) {
   const [name, setName] = useState(currentName === 'Tu nombre' ? '' : currentName)
   const [error, setError] = useState('')
@@ -1007,6 +1217,9 @@ function EmptyPlanWelcome({ onImport, onNewGoal }) {
 
 export default function App() {
   const [plan, setPlan] = useState(loadState)
+  const [appearance, setAppearance] = useState(loadAppearance)
+  const [backgroundUrl, setBackgroundUrl] = useState('')
+  const [backgroundRevision, setBackgroundRevision] = useState(0)
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [query, setQuery] = useState('')
@@ -1017,6 +1230,7 @@ export default function App() {
   const [goalEditor, setGoalEditor] = useState(null)
   const [actionEditor, setActionEditor] = useState(null)
   const [imageImporter, setImageImporter] = useState(null)
+  const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [creatorOpen, setCreatorOpen] = useState(false)
   const [saveStatus, setSaveStatus] = useState('saved')
   const hasPlan = plan.goals.length > 0
@@ -1027,6 +1241,41 @@ export default function App() {
   useEffect(() => {
     document.title = `${personName} · Plan de Logros`
   }, [personName])
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = appearance.theme
+    try {
+      localStorage.setItem(APPEARANCE_KEY, JSON.stringify(appearance))
+    } catch {
+      // El tema sigue funcionando durante la sesión si el navegador bloquea el almacenamiento.
+    }
+  }, [appearance])
+
+  useEffect(() => {
+    let active = true
+    let objectUrl = ''
+    if (!appearance.hasBackground) {
+      setBackgroundUrl('')
+      return undefined
+    }
+
+    getAppearanceImage(BACKGROUND_IMAGE_ID)
+      .then((blob) => {
+        if (!active) return
+        if (!blob) {
+          setBackgroundUrl('')
+          return
+        }
+        objectUrl = URL.createObjectURL(blob)
+        setBackgroundUrl(objectUrl)
+      })
+      .catch(() => active && setBackgroundUrl(''))
+
+    return () => {
+      active = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [appearance.hasBackground, backgroundRevision])
 
   useEffect(() => {
     setSaveStatus('saving')
@@ -1162,6 +1411,13 @@ export default function App() {
   const updateOwnerName = (ownerName) => {
     rememberProfileName(ownerName)
     setPlan((current) => ({ ...current, ownerName }))
+  }
+
+  const updateAppearance = async (nextAppearance, backgroundFile, removeBackground) => {
+    if (removeBackground) await deleteAppearanceImage(BACKGROUND_IMAGE_ID).catch(() => {})
+    if (backgroundFile) await saveAppearanceImage(BACKGROUND_IMAGE_ID, backgroundFile)
+    setAppearance(nextAppearance)
+    setBackgroundRevision((current) => current + 1)
   }
 
   const sameCategory = (first, second) => (
@@ -1307,8 +1563,15 @@ export default function App() {
     weekday: 'long', day: 'numeric', month: 'long',
   }).format(new Date()))
 
+  const appearanceStyles = {
+    '--custom-background-image': backgroundUrl ? `url(${backgroundUrl})` : 'none',
+    '--custom-background-opacity': appearance.backgroundOpacity,
+    '--custom-background-blur': `${appearance.backgroundBlur}px`,
+    '--panel-strength': `${Math.round(appearance.panelOpacity * 100)}%`,
+  }
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${backgroundUrl ? 'has-custom-background' : ''}`} style={appearanceStyles}>
       <Sidebar
         personName={personName}
         categories={categories}
@@ -1337,6 +1600,7 @@ export default function App() {
               <button className="secondary-button appbar-action" onClick={openNewGoal}><Plus size={17} /> <span>Nuevo logro</span></button>
               <button className="primary-button appbar-action" onClick={() => setImportOpen(true)}><Upload size={17} /> <span>Importar</span></button>
               <button className="icon-button appbar-icon" onClick={() => setNameEditOpen(true)} aria-label={`Editar nombre: ${personName}`} title={personName}><UserRound size={17} /></button>
+              <button className="icon-button appbar-icon settings-button" onClick={() => setAppearanceOpen(true)} aria-label="Configurar apariencia" title="Configurar apariencia"><Settings2 size={18} /></button>
               <CreatorCredit open={creatorOpen} onToggle={() => setCreatorOpen((current) => !current)} />
             </div>
           </header>
@@ -1491,6 +1755,7 @@ export default function App() {
       {goalEditor && <GoalEditorModal initialGoal={goalEditor} categories={categories.map((category) => category.name)} getNextNumber={getNextGoalNumber} onClose={() => setGoalEditor(null)} onSave={saveGoal} />}
       {actionEditor && <ActionEditorModal goal={actionEditor.goal} task={actionEditor.task} onClose={() => setActionEditor(null)} onSave={saveAction} />}
       {imageImporter && <ImageImportModal goal={imageImporter.goal} task={imageImporter.task} onClose={() => setImageImporter(null)} onSave={addTaskImages} />}
+      {appearanceOpen && <AppearanceSettingsModal appearance={appearance} backgroundUrl={backgroundUrl} onClose={() => setAppearanceOpen(false)} onSave={updateAppearance} />}
     </div>
   )
 }

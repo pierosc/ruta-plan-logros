@@ -1,6 +1,7 @@
 const DATABASE_NAME = 'ruta-logros-media'
-const DATABASE_VERSION = 1
+const DATABASE_VERSION = 2
 const IMAGE_STORE = 'action-images'
+const APPEARANCE_STORE = 'appearance-images'
 
 let databasePromise
 
@@ -18,6 +19,9 @@ const openDatabase = () => {
         if (!database.objectStoreNames.contains(IMAGE_STORE)) {
           database.createObjectStore(IMAGE_STORE, { keyPath: 'id' })
         }
+        if (!database.objectStoreNames.contains(APPEARANCE_STORE)) {
+          database.createObjectStore(APPEARANCE_STORE, { keyPath: 'id' })
+        }
       }
       request.onsuccess = () => resolve(request.result)
       request.onerror = () => reject(request.error || new Error('No se pudo abrir el almacenamiento de imágenes.'))
@@ -26,11 +30,11 @@ const openDatabase = () => {
   return databasePromise
 }
 
-const runTransaction = async (mode, operation) => {
+const runTransaction = async (storeName, mode, operation) => {
   const database = await openDatabase()
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction(IMAGE_STORE, mode)
-    const store = transaction.objectStore(IMAGE_STORE)
+    const transaction = database.transaction(storeName, mode)
+    const store = transaction.objectStore(storeName)
     let result
 
     try {
@@ -46,7 +50,7 @@ const runTransaction = async (mode, operation) => {
   })
 }
 
-export const saveActionImage = (id, file) => runTransaction('readwrite', (store) => store.put({
+const saveImage = (storeName, id, file) => runTransaction(storeName, 'readwrite', (store) => store.put({
   id,
   blob: file,
   name: file.name,
@@ -55,16 +59,21 @@ export const saveActionImage = (id, file) => runTransaction('readwrite', (store)
   savedAt: new Date().toISOString(),
 }))
 
-export const getActionImage = async (id) => {
+const getImage = async (storeName, id) => {
   const database = await openDatabase()
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction(IMAGE_STORE, 'readonly')
-    const request = transaction.objectStore(IMAGE_STORE).get(id)
+    const transaction = database.transaction(storeName, 'readonly')
+    const request = transaction.objectStore(storeName).get(id)
     request.onsuccess = () => resolve(request.result?.blob || null)
     request.onerror = () => reject(request.error || new Error('No se pudo leer la imagen.'))
   })
 }
 
-export const deleteActionImage = (id) => runTransaction('readwrite', (store) => store.delete(id))
+export const saveActionImage = (id, file) => saveImage(IMAGE_STORE, id, file)
+export const getActionImage = (id) => getImage(IMAGE_STORE, id)
+export const deleteActionImage = (id) => runTransaction(IMAGE_STORE, 'readwrite', (store) => store.delete(id))
+export const clearActionImages = () => runTransaction(IMAGE_STORE, 'readwrite', (store) => store.clear())
 
-export const clearActionImages = () => runTransaction('readwrite', (store) => store.clear())
+export const saveAppearanceImage = (id, file) => saveImage(APPEARANCE_STORE, id, file)
+export const getAppearanceImage = (id) => getImage(APPEARANCE_STORE, id)
+export const deleteAppearanceImage = (id) => runTransaction(APPEARANCE_STORE, 'readwrite', (store) => store.delete(id))
