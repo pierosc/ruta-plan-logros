@@ -15,6 +15,7 @@ import {
   HardDrive,
   HeartPulse,
   Home,
+  ImagePlus,
   Instagram,
   Leaf,
   ListChecks,
@@ -27,6 +28,7 @@ import {
   Sparkles,
   StickyNote,
   Target,
+  Trash2,
   Upload,
   UserRound,
   Users,
@@ -35,6 +37,7 @@ import {
 } from 'lucide-react'
 import { DEFAULT_PLAN, DEFAULT_PLAN_TITLE } from './data/defaultPlan.js'
 import { DOCUMENT_PARSER_VERSION, readPlanDocument } from './utils/documentParser.js'
+import { clearActionImages, deleteActionImage, getActionImage, saveActionImage } from './utils/localMedia.js'
 
 const STORAGE_KEY = 'ruta-logros-state-v1'
 const EMPTY_PLAN_TITLE = 'Mi Plan de Logros'
@@ -76,6 +79,7 @@ const prepareGoals = (goals, prefix = '') =>
         ...task,
         id: task.id || `${baseId}-accion-${taskIndex + 1}`,
         completed: Boolean(task.completed),
+        attachments: Array.isArray(task.attachments) ? task.attachments : [],
       })),
     }
   })
@@ -212,6 +216,50 @@ function ProgressRing({ value }) {
   )
 }
 
+function StoredActionImage({ attachment, onRemove }) {
+  const [url, setUrl] = useState('')
+  const [missing, setMissing] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    let objectUrl = ''
+
+    getActionImage(attachment.id)
+      .then((blob) => {
+        if (!active) return
+        if (!blob) {
+          setMissing(true)
+          return
+        }
+        objectUrl = URL.createObjectURL(blob)
+        setUrl(objectUrl)
+      })
+      .catch(() => active && setMissing(true))
+
+    return () => {
+      active = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [attachment.id])
+
+  return (
+    <div className={`stored-action-image ${missing ? 'missing' : ''}`}>
+      {url ? (
+        <a href={url} target="_blank" rel="noreferrer" title={`Abrir ${attachment.name}`}>
+          <img src={url} alt={attachment.name || 'Evidencia de la acción'} />
+        </a>
+      ) : (
+        <span className="stored-image-placeholder"><ImagePlus size={18} /> {missing ? 'No disponible' : 'Cargando…'}</span>
+      )}
+      {onRemove && (
+        <button type="button" onClick={() => onRemove(attachment.id)} aria-label={`Quitar ${attachment.name}`}>
+          <Trash2 size={13} />
+        </button>
+      )}
+    </div>
+  )
+}
+
 function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, onEditGoal, onAddTask, onEditTask, open, onToggleOpen }) {
   const categoryStyle = getCategoryStyle(goal.category)
   const CategoryIcon = categoryStyle.Icon
@@ -286,18 +334,25 @@ function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, onEditGoal, 
               <div className="task-list">
                 {goal.tasks.map((task) => (
                   <div className={`task-row ${task.completed ? 'task-completed' : ''}`} key={task.id}>
-                    <label className="task-toggle">
-                      <input
-                        type="checkbox"
-                        checked={task.completed}
-                        onChange={() => onToggleTask(goal.id, task.id)}
-                      />
-                      <span className="task-checkbox"><Check size={14} strokeWidth={3} /></span>
-                      <span className="task-copy">
-                        <span>{task.text}</span>
-                        {task.due && <small><Clock3 size={12} /> {task.due}</small>}
-                      </span>
-                    </label>
+                    <div className="task-main">
+                      <label className="task-toggle">
+                        <input
+                          type="checkbox"
+                          checked={task.completed}
+                          onChange={() => onToggleTask(goal.id, task.id)}
+                        />
+                        <span className="task-checkbox"><Check size={14} strokeWidth={3} /></span>
+                        <span className="task-copy">
+                          <span>{task.text}</span>
+                          {task.due && <small><Clock3 size={12} /> {task.due}</small>}
+                        </span>
+                      </label>
+                      {!!task.attachments?.length && (
+                        <div className="task-attachments" aria-label="Imágenes de la acción">
+                          {task.attachments.map((attachment) => <StoredActionImage attachment={attachment} key={attachment.id} />)}
+                        </div>
+                      )}
+                    </div>
                     <button className="task-edit-button" onClick={() => onEditTask(goal, task)} aria-label="Editar acción">
                       <Pencil size={14} />
                     </button>
@@ -360,7 +415,7 @@ function ImportModal({ onClose, onImport }) {
     try {
       const parsed = await readPlanDocument(file)
       const ownerName = parsed.ownerName?.trim() || ''
-      onImport({ ...parsed, ownerName })
+      await onImport({ ...parsed, ownerName })
       onClose()
     } catch (importError) {
       setError(importError.message || 'No se pudo leer el documento.')
@@ -381,7 +436,7 @@ function ImportModal({ onClose, onImport }) {
           <button className="icon-button" onClick={onClose} aria-label="Cerrar"><X size={20} /></button>
         </div>
 
-        <div className="name-detection-note"><UserRound size={17} /> El nombre y el contrato se leerán directamente del documento.</div>
+        <div className="name-detection-note"><UserRound size={17} /> Leeremos el nombre y el contrato directamente del documento. Si el nombre no existe, te lo pediremos una sola vez.</div>
 
         <div
           className={`drop-zone ${file ? 'has-file' : ''}`}
@@ -573,16 +628,77 @@ function ActionEditorModal({ goal, task, onClose, onSave }) {
   const isEditing = Boolean(task)
   const [text, setText] = useState(task?.text || '')
   const [due, setDue] = useState(task?.due || '')
+  const [removedAttachmentIds, setRemovedAttachmentIds] = useState(() => new Set())
+  const [newImages, setNewImages] = useState([])
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const imageInputRef = useRef(null)
+  const previewUrlsRef = useRef(new Set())
+  const existingAttachments = task?.attachments || []
+  const visibleExistingAttachments = existingAttachments.filter((attachment) => !removedAttachmentIds.has(attachment.id))
 
-  const submit = (event) => {
+  useEffect(() => () => {
+    previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+  }, [])
+
+  const chooseImages = (files) => {
+    const availableSlots = Math.max(0, 4 - visibleExistingAttachments.length - newImages.length)
+    const selected = Array.from(files || [])
+    const invalid = selected.find((file) => !file.type.startsWith('image/') || file.size > 8 * 1024 * 1024)
+    if (invalid) {
+      setError('Usa imágenes de hasta 8 MB cada una.')
+      return
+    }
+    if (!availableSlots) {
+      setError('Puedes guardar hasta 4 imágenes por acción.')
+      return
+    }
+
+    const additions = selected.slice(0, availableSlots).map((file) => {
+      const id = globalThis.crypto?.randomUUID?.() || `imagen-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const previewUrl = URL.createObjectURL(file)
+      previewUrlsRef.current.add(previewUrl)
+      return { id, file, previewUrl }
+    })
+    setNewImages((current) => [...current, ...additions])
+    setError(selected.length > availableSlots ? 'Solo se añadieron las imágenes que caben en el límite de 4.' : '')
+    if (imageInputRef.current) imageInputRef.current.value = ''
+  }
+
+  const removeNewImage = (id) => {
+    setNewImages((current) => current.filter((image) => {
+      if (image.id !== id) return true
+      URL.revokeObjectURL(image.previewUrl)
+      previewUrlsRef.current.delete(image.previewUrl)
+      return false
+    }))
+  }
+
+  const submit = async (event) => {
     event.preventDefault()
     if (!text.trim()) {
       setError('Escribe la acción para continuar.')
       return
     }
-    onSave(goal.id, { ...task, text: text.trim(), due: due.trim() })
-    onClose()
+    setSaving(true)
+    setError('')
+    try {
+      const attachments = [
+        ...visibleExistingAttachments,
+        ...newImages.map(({ id, file }) => ({ id, name: file.name, type: file.type, size: file.size })),
+      ]
+      await onSave(
+        goal.id,
+        { ...task, text: text.trim(), due: due.trim(), attachments },
+        newImages.map(({ id, file }) => ({ id, file })),
+        [...removedAttachmentIds],
+      )
+      onClose()
+    } catch (saveError) {
+      setError(saveError.message || 'No se pudieron guardar las imágenes.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -604,10 +720,46 @@ function ActionEditorModal({ goal, task, onClose, onSave }) {
           <span>Fecha</span>
           <input value={due} onChange={(event) => setDue(event.target.value)} placeholder="Ej. Desde el 04 de julio" />
         </label>
+        <section className="action-media-editor" aria-labelledby="action-images-title">
+          <div className="action-media-heading">
+            <div>
+              <span id="action-images-title">Evidencias</span>
+              <small>{visibleExistingAttachments.length + newImages.length}/4 imágenes</small>
+            </div>
+            <button type="button" onClick={() => imageInputRef.current?.click()}><ImagePlus size={16} /> Añadir imágenes</button>
+            <input ref={imageInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => chooseImages(event.target.files)} />
+          </div>
+
+          {(visibleExistingAttachments.length > 0 || newImages.length > 0) && (
+            <div className="action-media-grid">
+              {visibleExistingAttachments.map((attachment) => (
+                <StoredActionImage
+                  attachment={attachment}
+                  key={attachment.id}
+                  onRemove={(id) => setRemovedAttachmentIds((current) => new Set(current).add(id))}
+                />
+              ))}
+              {newImages.map((image) => (
+                <div className="stored-action-image pending" key={image.id}>
+                  <img src={image.previewUrl} alt={image.file.name} />
+                  <button type="button" onClick={() => removeNewImage(image.id)} aria-label={`Quitar ${image.file.name}`}><Trash2 size={13} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="media-local-notice">
+            <HardDrive size={16} />
+            <span>Guardamos una copia solo en este navegador. Mover el archivo original no la afecta; se perderá si borras los datos del sitio o cambias de dispositivo. El respaldo JSON no incluye las imágenes.</span>
+          </div>
+        </section>
         {error && <div className="modal-error"><AlertCircle size={16} /> {error}</div>}
         <div className="modal-actions">
-          <button className="secondary-button" type="button" onClick={onClose}>Cancelar</button>
-          <button className="primary-button" type="submit"><Check size={18} /> {isEditing ? 'Guardar acción' : 'Agregar acción'}</button>
+          <button className="secondary-button" type="button" onClick={onClose} disabled={saving}>Cancelar</button>
+          <button className="primary-button" type="submit" disabled={saving}>
+            {saving ? <LoaderCircle className="spin" size={18} /> : <Check size={18} />}
+            {saving ? 'Guardando…' : isEditing ? 'Guardar acción' : 'Agregar acción'}
+          </button>
         </div>
       </form>
     </div>
@@ -812,7 +964,8 @@ export default function App() {
     })
   }
 
-  const importPlan = (parsed) => {
+  const importPlan = async (parsed) => {
+    await clearActionImages().catch(() => {})
     const importedGoals = prepareGoals(parsed.goals)
     setPlan({
       title: parsed.title,
@@ -828,6 +981,7 @@ export default function App() {
     setQuery('')
     setOpenGoals(new Set())
     setCollapsedCategories(new Set())
+    if (!parsed.ownerName?.trim()) setNameEditOpen(true)
   }
 
   const updateOwnerName = (ownerName) => {
@@ -866,7 +1020,9 @@ export default function App() {
     setOpenGoals((current) => new Set(current).add(id))
   }
 
-  const saveAction = (goalId, draft) => {
+  const saveAction = async (goalId, draft, newImages = [], removedAttachmentIds = []) => {
+    await Promise.all(newImages.map(({ id, file }) => saveActionImage(id, file)))
+    await Promise.all(removedAttachmentIds.map((id) => deleteActionImage(id)))
     setPlan((current) => ({
       ...current,
       goals: current.goals.map((goal) => {
@@ -894,8 +1050,9 @@ export default function App() {
     URL.revokeObjectURL(url)
   }
 
-  const resetPlan = () => {
+  const resetPlan = async () => {
     if (!window.confirm('¿Vaciar este plan? Se eliminarán sus logros, checks y notas guardados en este navegador.')) return
+    await clearActionImages().catch(() => {})
     setPlan(createDefaultState())
     setSelectedCategory('all')
     setStatusFilter('all')

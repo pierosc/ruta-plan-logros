@@ -1,6 +1,6 @@
 import { Buffer } from 'buffer'
 
-export const DOCUMENT_PARSER_VERSION = 4
+export const DOCUMENT_PARSER_VERSION = 5
 
 const clean = (value = '') =>
   value
@@ -12,6 +12,19 @@ const cleanCategory = (value) =>
   clean(value)
     .replace(/\s*\(un solo logro[^)]*\)\s*/i, '')
     .replace(/[.:]+$/, '')
+
+const isLikelyPersonName = (value) => {
+  const candidate = clean(value).replace(/[|_]+$/g, '').trim()
+  const words = candidate.split(/\s+/)
+  const reserved = /^(?:contrato|visi[oó]n|prop[oó]sito|plan\s+de\s+logros|fecha|check)$/i
+  return (
+    candidate.length >= 2
+    && candidate.length <= 80
+    && words.length <= 8
+    && !reserved.test(candidate)
+    && /^[\p{L}][\p{L}\s'.-]+$/u.test(candidate)
+  )
+}
 
 const extractOwnerName = (rawText) => {
   const lines = rawText
@@ -27,19 +40,35 @@ const extractOwnerName = (rawText) => {
     /^elaborado\s+por\s*[:-]\s*(.+)$/i,
   ]
 
-  for (const line of lines) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
     for (const pattern of patterns) {
       const match = line.match(pattern)
       if (!match) continue
       const candidate = clean(match[1]).replace(/[|_]+$/g, '').trim()
-      const words = candidate.split(/\s+/)
-      if (candidate.length >= 2 && candidate.length <= 60 && words.length <= 6 && /^[\p{L}][\p{L}\s'.-]+$/u.test(candidate)) {
-        return candidate
-      }
+      if (isLikelyPersonName(candidate)) return candidate
+    }
+
+    if (/^(?:nombre(?:\s+y\s+apellidos)?|participante|cliente|persona|titular)\s*:?[\s|_]*$/i.test(line)) {
+      const candidate = lines.slice(index + 1, index + 4).find(isLikelyPersonName)
+      if (candidate) return clean(candidate).replace(/[|_]+$/g, '').trim()
     }
   }
 
   return ''
+}
+
+const extractOwnerFromFilename = (sourceName) => {
+  const candidate = clean(sourceName
+    .replace(/\.(docx?|pdf|txt)$/i, '')
+    .replace(/^formato\s+de\s+plan\s+de\s+logros\s*/i, '')
+    .replace(/^pl\s+/i, '')
+    .replace(/\s*v\d+$/i, '')
+    .replace(/\s*\((?:reparad[oa]|copia|final|versi[oó]n)[^)]*\)\s*$/i, '')
+    .replace(/[_-]+/g, ' '))
+
+  if (/\b(?:easy|rv|reparad[oa]|borrador|plantilla|formato|copia|final)\b/i.test(candidate)) return ''
+  return isLikelyPersonName(candidate) ? candidate : ''
 }
 
 const extractContract = (rawText) => {
@@ -80,7 +109,7 @@ const sectionRows = (rows, label, nextLabels) => {
 }
 
 export function parsePlanText(rawText, sourceName = 'Documento importado') {
-  const ownerName = extractOwnerName(rawText)
+  const ownerName = extractOwnerName(rawText) || extractOwnerFromFilename(sourceName)
   const contract = extractContract(rawText)
   const rows = rawText
     .replace(/\r/g, '\n')
