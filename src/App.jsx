@@ -275,7 +275,7 @@ function StoredActionImage({ attachment, onRemove }) {
         <span className="stored-image-placeholder"><ImagePlus size={18} /> {missing ? 'No disponible' : 'Cargando…'}</span>
       )}
       {onRemove && (
-        <button type="button" onClick={() => onRemove(attachment.id)} aria-label={`Quitar ${attachment.name}`}>
+        <button type="button" onClick={() => onRemove(attachment.id)} aria-label={`Quitar ${attachment.name}`} title="Quitar imagen">
           <Trash2 size={13} />
         </button>
       )}
@@ -340,7 +340,7 @@ function QuickImageUpload({ goalId, task, onUpload }) {
   )
 }
 
-function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, onEditGoal, onAddTask, onEditTask, onAddTaskImages, open, onToggleOpen }) {
+function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, onEditGoal, onAddTask, onEditTask, onAddTaskImages, onRemoveTaskImage, open, onToggleOpen }) {
   const categoryStyle = getCategoryStyle(goal.category)
   const CategoryIcon = categoryStyle.Icon
   const progress = getGoalProgress(goal)
@@ -429,7 +429,13 @@ function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, onEditGoal, 
                       </label>
                       {!!task.attachments?.length && (
                         <div className="task-attachments" aria-label="Imágenes de la acción">
-                          {task.attachments.map((attachment) => <StoredActionImage attachment={attachment} key={attachment.id} />)}
+                          {task.attachments.map((attachment) => (
+                            <StoredActionImage
+                              attachment={attachment}
+                              key={attachment.id}
+                              onRemove={(attachmentId) => onRemoveTaskImage(goal.id, task.id, attachmentId)}
+                            />
+                          ))}
                         </div>
                       )}
                     </div>
@@ -1172,6 +1178,31 @@ export default function App() {
     return { saved: additions.length, skipped: Math.max(0, selectedFiles.length - additions.length) }
   }
 
+  const removeTaskImage = async (goalId, taskId, attachmentId) => {
+    const attachment = plan.goals
+      .find((goal) => goal.id === goalId)?.tasks
+      .find((task) => task.id === taskId)?.attachments
+      ?.find((image) => image.id === attachmentId)
+    if (!attachment) return
+    if (!window.confirm(`¿Quitar la imagen ${attachment.name || 'seleccionada'}? Esta copia local se eliminará.`)) return
+
+    try {
+      await deleteActionImage(attachmentId)
+      setPlan((current) => ({
+        ...current,
+        goals: current.goals.map((goal) => goal.id === goalId ? {
+          ...goal,
+          tasks: goal.tasks.map((task) => task.id === taskId ? {
+            ...task,
+            attachments: (task.attachments || []).filter((image) => image.id !== attachmentId),
+          } : task),
+        } : goal),
+      }))
+    } catch {
+      window.alert('No pudimos quitar la imagen. Inténtalo nuevamente.')
+    }
+  }
+
   const downloadBackup = () => {
     const blob = new Blob([JSON.stringify(plan, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -1344,6 +1375,7 @@ export default function App() {
                           onAddTask={(selectedGoal) => setActionEditor({ goal: selectedGoal, task: null })}
                           onEditTask={(selectedGoal, task) => setActionEditor({ goal: selectedGoal, task })}
                           onAddTaskImages={addTaskImages}
+                          onRemoveTaskImage={removeTaskImage}
                           open={openGoals.has(goal.id)}
                           onToggleOpen={toggleOpen}
                         />

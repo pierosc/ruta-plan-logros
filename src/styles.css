@@ -491,6 +491,8 @@ h1, h2, h3, p { margin-top: 0; }
 .stored-action-image:hover img { transform: scale(1.045); }
 .stored-action-image > button { position: absolute; top: 5px; right: 5px; width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 1px solid rgba(255,255,255,.75); border-radius: 7px; background: rgba(40,37,54,.72); color: white; cursor: pointer; backdrop-filter: blur(5px); }
 .stored-action-image > button:hover { background: #b95262; }
+.task-attachments .stored-action-image > button { top: 3px; right: 3px; width: 22px; height: 22px; background: rgba(66,60,79,.82); box-shadow: 0 3px 9px rgba(32,27,44,.22); }
+.task-attachments .stored-action-image > button:hover { background: #bd5061; transform: scale(1.04); }
 .stored-image-placeholder { width: 100%; height: 100%; display: grid; place-items: center; align-content: center; gap: 4px; padding: 5px; color: #9995a3; font-size: 7.5px; text-align: center; }
 .stored-action-image.missing { border-style: dashed; }
 .empty-action { display: flex; align-items: center; gap: 6px; padding: 10px 0; border: 0; background: transparent; color: var(--primary); font-size: 11px; cursor: pointer; }
