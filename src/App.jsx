@@ -300,7 +300,6 @@ function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, open, onTogg
 
 function ImportModal({ onClose, onImport }) {
   const [file, setFile] = useState(null)
-  const [mode, setMode] = useState('replace')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const inputRef = useRef(null)
@@ -324,7 +323,7 @@ function ImportModal({ onClose, onImport }) {
     setError('')
     try {
       const parsed = await readPlanDocument(file)
-      onImport(parsed, mode)
+      onImport(parsed)
       onClose()
     } catch (importError) {
       setError(importError.message || 'No se pudo leer el documento.')
@@ -370,19 +369,13 @@ function ImportModal({ onClose, onImport }) {
           <small>Compatible con Word .doc, .docx y texto .txt</small>
         </div>
 
-        <fieldset className="import-mode">
-          <legend>¿Qué hacemos con tu plan actual?</legend>
-          <label className={mode === 'replace' ? 'selected' : ''}>
-            <input type="radio" name="mode" value="replace" checked={mode === 'replace'} onChange={() => setMode('replace')} />
-            <span className="radio-mark" />
-            <span><strong>Reemplazar</strong><small>Usar el documento como mi plan principal.</small></span>
-          </label>
-          <label className={mode === 'append' ? 'selected' : ''}>
-            <input type="radio" name="mode" value="append" checked={mode === 'append'} onChange={() => setMode('append')} />
-            <span className="radio-mark" />
-            <span><strong>Agregar</strong><small>Sumar sus logros a los que ya tengo.</small></span>
-          </label>
-        </fieldset>
+        <div className="replace-plan-note">
+          <RotateCcw size={18} />
+          <span>
+            <strong>Un plan a la vez</strong>
+            <small>Al importar este documento, reemplazará el plan que tienes actualmente.</small>
+          </span>
+        </div>
 
         {error && <div className="modal-error"><AlertCircle size={16} /> {error}</div>}
 
@@ -518,18 +511,19 @@ export default function App() {
     })
   }
 
-  const importPlan = (parsed, mode) => {
-    const prefix = mode === 'append' ? `import-${Date.now()}-` : ''
-    const importedGoals = prepareGoals(parsed.goals, prefix)
-    setPlan((current) => ({
-      title: mode === 'append' ? current.title : parsed.title,
-      sourceName: mode === 'append' ? `${current.sourceName} + ${parsed.title}` : parsed.title,
-      goals: mode === 'append' ? [...current.goals, ...importedGoals] : importedGoals,
+  const importPlan = (parsed) => {
+    const importedGoals = prepareGoals(parsed.goals)
+    setPlan({
+      title: parsed.title,
+      sourceName: parsed.title,
+      goals: importedGoals,
       updatedAt: new Date().toISOString(),
-    }))
+    })
     setSelectedCategory('all')
     setStatusFilter('all')
     setQuery('')
+    setOpenGoals(new Set())
+    setCollapsedCategories(new Set())
   }
 
   const downloadBackup = () => {

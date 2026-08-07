@@ -444,16 +444,11 @@ h1, h2, h3, p { margin-top: 0; }
 .drop-zone strong { color: #414554; font-size: 13px; }
 .drop-zone span { color: #858895; font-size: 11px; }
 .drop-zone small { margin-top: 3px; color: #aaa9b1; font-size: 9.5px; }
-.import-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 0; padding: 0; border: 0; }
-.import-mode legend { grid-column: 1 / -1; margin-bottom: 7px; color: #555967; font-size: 11px; font-weight: 700; }
-.import-mode label { display: grid; grid-template-columns: auto 1fr; gap: 9px; align-items: start; padding: 12px; border: 1px solid var(--border); border-radius: 11px; cursor: pointer; }
-.import-mode label.selected { border-color: #bcb3ec; background: #faf9ff; }
-.import-mode input { position: absolute; opacity: 0; }
-.radio-mark { width: 17px; height: 17px; margin-top: 1px; border: 1.5px solid #c5c3ca; border-radius: 50%; box-shadow: inset 0 0 0 4px white; }
-.selected .radio-mark { border-color: var(--primary); background: var(--primary); }
-.import-mode label > span:last-child { display: grid; gap: 3px; }
-.import-mode strong { font-size: 11.5px; }
-.import-mode small { color: #8c8f99; font-size: 9.5px; line-height: 1.35; }
+.replace-plan-note { display: flex; align-items: flex-start; gap: 10px; padding: 12px 13px; border: 1px solid #ded9fb; border-radius: 11px; background: #faf9ff; color: #5950a7; }
+.replace-plan-note svg { flex: 0 0 auto; margin-top: 1px; }
+.replace-plan-note span { display: grid; gap: 3px; }
+.replace-plan-note strong { color: #4a465b; font-size: 11.5px; }
+.replace-plan-note small { color: #85818f; font-size: 9.5px; line-height: 1.4; }
 .modal-error { display: flex; align-items: center; gap: 7px; margin-top: 13px; padding: 10px 11px; border-radius: 9px; background: #fff1f2; color: #b65461; font-size: 10.5px; }
 .privacy-line { display: flex; align-items: center; gap: 6px; margin: 17px 0 12px; color: #92949d; font-size: 9.5px; }
 .privacy-line svg { color: #549877; }
@@ -523,7 +518,6 @@ h1, h2, h3, p { margin-top: 0; }
   .goal-progress-track { max-width: none; }
   .import-modal { padding: 21px 17px; border-radius: 17px; }
   .modal-header h2 { font-size: 19px; }
-  .import-mode { grid-template-columns: 1fr; }
   .modal-actions > button { flex: 1; padding-inline: 8px; }
 }
 
