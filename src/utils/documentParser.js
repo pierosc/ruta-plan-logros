@@ -1,5 +1,7 @@
 import { Buffer } from 'buffer'
 
+export const DOCUMENT_PARSER_VERSION = 4
+
 const clean = (value = '') =>
   value
     .replace(/\u00a0/g, ' ')
@@ -40,6 +42,27 @@ const extractOwnerName = (rawText) => {
   return ''
 }
 
+const extractContract = (rawText) => {
+  const normalized = rawText
+    .replace(/\u00a0/g, ' ')
+    .replace(/\r/g, '\n')
+    .replace(/[ \f\v]+/g, ' ')
+
+  const lines = normalized
+    .split(/\n+/)
+    .map(clean)
+    .filter(Boolean)
+
+  for (const line of lines) {
+    const directMatch = line.match(/^(?:mi\s*)?contrato(?:\s*es)?\s*:\s*(.+)$/i)
+    if (directMatch?.[1]) return clean(directMatch[1]).replace(/[|_]+$/g, '').trim()
+  }
+
+  const flattened = clean(lines.join(' '))
+  const match = flattened.match(/(?:^|\s)mi\s*contrato\s*(?:es)?\s*:?\s*(.+?)(?=\s+mi\s*visi[oó]n\s*(?:es)?\s*:|$)/i)
+  return match?.[1] ? clean(match[1]).replace(/[|_]+$/g, '').trim().slice(0, 240) : ''
+}
+
 const sectionRows = (rows, label, nextLabels) => {
   const start = rows.findIndex((cells) => clean(cells[0]).toLowerCase() === label)
   if (start < 0) return []
@@ -58,6 +81,7 @@ const sectionRows = (rows, label, nextLabels) => {
 
 export function parsePlanText(rawText, sourceName = 'Documento importado') {
   const ownerName = extractOwnerName(rawText)
+  const contract = extractContract(rawText)
   const rows = rawText
     .replace(/\r/g, '\n')
     .split(/\n+/)
@@ -138,7 +162,7 @@ export function parsePlanText(rawText, sourceName = 'Documento importado') {
   })
   finishGoal()
 
-  if (goals.length) return { title: sourceName.replace(/\.(docx?|pdf|txt)$/i, ''), ownerName, goals }
+  if (goals.length) return { title: sourceName.replace(/\.(docx?|pdf|txt)$/i, ''), ownerName, contract, goals }
 
   const paragraphs = rawText
     .split(/\r?\n+/)
@@ -149,6 +173,7 @@ export function parsePlanText(rawText, sourceName = 'Documento importado') {
   return {
     title: sourceName.replace(/\.(docx?|pdf|txt)$/i, ''),
     ownerName,
+    contract,
     goals: paragraphs.map((meta, index) => ({
       category: 'Importado',
       number: index + 1,
@@ -172,6 +197,7 @@ async function extractPdfText(arrayBuffer) {
   const pdf = await loadingTask.promise
   const pages = []
   let ownerName = ''
+  let contract = ''
   let activeSection = ''
 
   const sectionLabels = new Set(['meta', 'ser', 'hacer', 'tener'])
@@ -199,15 +225,15 @@ async function extractPdfText(arrayBuffer) {
         width: Math.abs(item.width || 0),
       }
       const previous = merged.at(-1)
+      const previousRight = previous ? previous.x + previous.width : 0
+      const gap = previous ? next.x - previousRight : Number.POSITIVE_INFINITY
 
       if (
         previous
         && Math.abs(previous.y - next.y) <= 2
-        && columnFor(previous.x) === columnFor(next.x)
+        && (columnFor(previous.x) === columnFor(next.x) || gap <= 2)
         && next.x >= previous.x - 1
       ) {
-        const previousRight = previous.x + previous.width
-        const gap = next.x - previousRight
         const separator = gap <= 2 ? '' : ' '
         previous.value = clean(`${previous.value}${separator}${next.value}`)
         previous.width = Math.max(previousRight, next.x + next.width) - previous.x
@@ -268,6 +294,8 @@ async function extractPdfText(arrayBuffer) {
       const page = await pdf.getPage(pageNumber)
       const content = await page.getTextContent()
       const items = mergePdfFragments(content.items)
+
+      if (!contract) contract = extractContract(items.map((item) => item.value).join(' '))
 
       if (!ownerName) {
         const nameIndex = items.findIndex((item) => item.value.toLocaleLowerCase('es') === 'nombre')
@@ -341,7 +369,7 @@ async function extractPdfText(arrayBuffer) {
     await loadingTask.destroy()
   }
 
-  return `${ownerName ? `Nombre: ${ownerName}\n` : ''}${pages.join('\n')}`
+  return `${ownerName ? `Nombre: ${ownerName}\n` : ''}${contract ? `Contrato: ${contract}\n` : ''}${pages.join('\n')}`
 }
 
 async function extractLegacyDoc(arrayBuffer) {
@@ -385,5 +413,5 @@ export async function readPlanDocument(file) {
   if (!parsed.goals.length) {
     throw new Error('No pudimos encontrar logros legibles en este documento.')
   }
-  return parsed
+  return { ...parsed, parserVersion: DOCUMENT_PARSER_VERSION }
 }

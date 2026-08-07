@@ -15,6 +15,7 @@ import {
   HardDrive,
   HeartPulse,
   Home,
+  Instagram,
   Leaf,
   ListChecks,
   LoaderCircle,
@@ -33,9 +34,10 @@ import {
   X,
 } from 'lucide-react'
 import { DEFAULT_PLAN, DEFAULT_PLAN_TITLE } from './data/defaultPlan.js'
-import { readPlanDocument } from './utils/documentParser.js'
+import { DOCUMENT_PARSER_VERSION, readPlanDocument } from './utils/documentParser.js'
 
 const STORAGE_KEY = 'ruta-logros-state-v1'
+const DEFAULT_CONTRACT = 'Yo soy una mujer valiente, segura y libre.'
 
 const CATEGORY_STYLES = [
   { match: 'familia', label: 'Familia', color: '#e46f87', soft: '#fff0f3', Icon: Users },
@@ -81,7 +83,9 @@ const prepareGoals = (goals, prefix = '') =>
 const createDefaultState = () => ({
   title: DEFAULT_PLAN_TITLE,
   ownerName: '',
+  contract: DEFAULT_CONTRACT,
   sourceName: 'Plan de Logros original',
+  parserVersion: DOCUMENT_PARSER_VERSION,
   goals: prepareGoals(DEFAULT_PLAN),
   updatedAt: new Date().toISOString(),
 })
@@ -193,7 +197,7 @@ function ProgressRing({ value }) {
   )
 }
 
-function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, open, onToggleOpen }) {
+function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, onEditGoal, onAddTask, onEditTask, open, onToggleOpen }) {
   const categoryStyle = getCategoryStyle(goal.category)
   const CategoryIcon = categoryStyle.Icon
   const progress = getGoalProgress(goal)
@@ -235,10 +239,15 @@ function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, open, onTogg
           </div>
         </div>
 
-        <button className={`expand-button ${open ? 'open' : ''}`} onClick={() => onToggleOpen(goal.id)} aria-expanded={open}>
-          <ChevronDown size={19} />
-          <span>{open ? 'Cerrar' : 'Ver plan'}</span>
-        </button>
+        <div className="goal-card-actions">
+          <button className="goal-edit-button" onClick={() => onEditGoal(goal)} aria-label={`Editar logro ${goal.number}`}>
+            <Pencil size={15} />
+          </button>
+          <button className={`expand-button ${open ? 'open' : ''}`} onClick={() => onToggleOpen(goal.id)} aria-expanded={open}>
+            <ChevronDown size={19} />
+            <span>{open ? 'Cerrar' : 'Ver plan'}</span>
+          </button>
+        </div>
       </div>
 
       {open && (
@@ -253,28 +262,36 @@ function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, open, onTogg
           <div className="actions-section">
             <div className="detail-heading">
               <span>Acciones</span>
-              <small>{completedTasks}/{goal.tasks.length} listas</small>
+              <div className="detail-heading-actions">
+                <small>{completedTasks}/{goal.tasks.length} listas</small>
+                <button onClick={() => onAddTask(goal)}><Plus size={14} /> Agregar acción</button>
+              </div>
             </div>
             {goal.tasks.length ? (
               <div className="task-list">
                 {goal.tasks.map((task) => (
-                  <label className={`task-row ${task.completed ? 'task-completed' : ''}`} key={task.id}>
-                    <input
-                      type="checkbox"
-                      checked={task.completed}
-                      onChange={() => onToggleTask(goal.id, task.id)}
-                    />
-                    <span className="task-checkbox"><Check size={14} strokeWidth={3} /></span>
-                    <span className="task-copy">
-                      <span>{task.text}</span>
-                      {task.due && <small><Clock3 size={12} /> {task.due}</small>}
-                    </span>
-                  </label>
+                  <div className={`task-row ${task.completed ? 'task-completed' : ''}`} key={task.id}>
+                    <label className="task-toggle">
+                      <input
+                        type="checkbox"
+                        checked={task.completed}
+                        onChange={() => onToggleTask(goal.id, task.id)}
+                      />
+                      <span className="task-checkbox"><Check size={14} strokeWidth={3} /></span>
+                      <span className="task-copy">
+                        <span>{task.text}</span>
+                        {task.due && <small><Clock3 size={12} /> {task.due}</small>}
+                      </span>
+                    </label>
+                    <button className="task-edit-button" onClick={() => onEditTask(goal, task)} aria-label="Editar acción">
+                      <Pencil size={14} />
+                    </button>
+                  </div>
                 ))}
               </div>
             ) : (
-              <button className="empty-action" onClick={() => onToggleGoal(goal.id)}>
-                <Plus size={16} /> Usa el check principal para completar este logro
+              <button className="empty-action" onClick={() => onAddTask(goal)}>
+                <Plus size={16} /> Agregar la primera acción
               </button>
             )}
           </div>
@@ -349,7 +366,7 @@ function ImportModal({ onClose, onImport }) {
           <button className="icon-button" onClick={onClose} aria-label="Cerrar"><X size={20} /></button>
         </div>
 
-        <div className="name-detection-note"><UserRound size={17} /> El nombre se leerá del campo “Nombre” del documento.</div>
+        <div className="name-detection-note"><UserRound size={17} /> El nombre y el contrato se leerán directamente del documento.</div>
 
         <div
           className={`drop-zone ${file ? 'has-file' : ''}`}
@@ -453,6 +470,154 @@ function EditNameModal({ currentName, onClose, onSave }) {
   )
 }
 
+function GoalEditorModal({ initialGoal, categories, getNextNumber, onClose, onSave }) {
+  const isEditing = Boolean(initialGoal.id)
+  const [category, setCategory] = useState(initialGoal.category || '')
+  const [number, setNumber] = useState(String(initialGoal.number || 1))
+  const [meta, setMeta] = useState(initialGoal.meta || '')
+  const [due, setDue] = useState(initialGoal.due || '')
+  const [identity, setIdentity] = useState(initialGoal.identity || '')
+  const [outcome, setOutcome] = useState(initialGoal.outcome || '')
+  const [error, setError] = useState('')
+
+  const submit = (event) => {
+    event.preventDefault()
+    if (!category.trim() || !meta.trim()) {
+      setError('Completa el área y la meta del logro.')
+      return
+    }
+    onSave({
+      ...initialGoal,
+      category: category.trim(),
+      number: Math.max(1, Number(number) || 1),
+      meta: meta.trim(),
+      due: due.trim(),
+      identity: identity.trim(),
+      outcome: outcome.trim(),
+    })
+    onClose()
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <form className="import-modal editor-modal" role="dialog" aria-modal="true" aria-labelledby="goal-editor-title" onSubmit={submit}>
+        <div className="modal-header">
+          <div>
+            <span className="modal-kicker">Plan editable</span>
+            <h2 id="goal-editor-title">{isEditing ? 'Editar logro' : 'Nuevo logro'}</h2>
+            <p>Actualiza la meta y los elementos principales del logro.</p>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar"><X size={20} /></button>
+        </div>
+
+        <div className="editor-grid editor-grid-compact">
+          <label className="editor-field">
+            <span>Área de vida</span>
+            <input value={category} onChange={(event) => {
+              const nextCategory = event.target.value
+              setCategory(nextCategory)
+              if (!isEditing) setNumber(String(getNextNumber(nextCategory)))
+              setError('')
+            }} list="goal-category-options" placeholder="Ej. Dinero y Finanzas" autoFocus />
+            <datalist id="goal-category-options">{categories.map((item) => <option value={item} key={item} />)}</datalist>
+          </label>
+          <label className="editor-field number-field">
+            <span>Número</span>
+            <input type="number" min="1" max="99" value={number} onChange={(event) => setNumber(event.target.value)} />
+          </label>
+        </div>
+
+        <label className="editor-field">
+          <span>Meta</span>
+          <textarea value={meta} onChange={(event) => { setMeta(event.target.value); setError('') }} rows={3} placeholder="¿Qué quieres lograr?" />
+        </label>
+        <label className="editor-field">
+          <span>Fecha</span>
+          <input value={due} onChange={(event) => setDue(event.target.value)} placeholder="Ej. 30 de septiembre" />
+        </label>
+        <label className="editor-field">
+          <span>Quién elijo ser</span>
+          <textarea value={identity} onChange={(event) => setIdentity(event.target.value)} rows={2} placeholder="Ej. Responsable, constante y comprometida" />
+        </label>
+        <label className="editor-field">
+          <span>Lo que voy a tener</span>
+          <textarea value={outcome} onChange={(event) => setOutcome(event.target.value)} rows={3} placeholder="Describe el resultado que quieres experimentar" />
+        </label>
+
+        {error && <div className="modal-error"><AlertCircle size={16} /> {error}</div>}
+        <div className="modal-actions">
+          <button className="secondary-button" type="button" onClick={onClose}>Cancelar</button>
+          <button className="primary-button" type="submit"><Check size={18} /> {isEditing ? 'Guardar cambios' : 'Crear logro'}</button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function ActionEditorModal({ goal, task, onClose, onSave }) {
+  const isEditing = Boolean(task)
+  const [text, setText] = useState(task?.text || '')
+  const [due, setDue] = useState(task?.due || '')
+  const [error, setError] = useState('')
+
+  const submit = (event) => {
+    event.preventDefault()
+    if (!text.trim()) {
+      setError('Escribe la acción para continuar.')
+      return
+    }
+    onSave(goal.id, { ...task, text: text.trim(), due: due.trim() })
+    onClose()
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <form className="import-modal action-modal" role="dialog" aria-modal="true" aria-labelledby="action-editor-title" onSubmit={submit}>
+        <div className="modal-header">
+          <div>
+            <span className="modal-kicker">Logro {goal.number}</span>
+            <h2 id="action-editor-title">{isEditing ? 'Editar acción' : 'Nueva acción'}</h2>
+            <p>{goal.meta}</p>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar"><X size={20} /></button>
+        </div>
+        <label className="editor-field">
+          <span>Acción</span>
+          <textarea value={text} onChange={(event) => { setText(event.target.value); setError('') }} rows={4} placeholder="Describe el siguiente paso" autoFocus />
+        </label>
+        <label className="editor-field">
+          <span>Fecha</span>
+          <input value={due} onChange={(event) => setDue(event.target.value)} placeholder="Ej. Desde el 04 de julio" />
+        </label>
+        {error && <div className="modal-error"><AlertCircle size={16} /> {error}</div>}
+        <div className="modal-actions">
+          <button className="secondary-button" type="button" onClick={onClose}>Cancelar</button>
+          <button className="primary-button" type="submit"><Check size={18} /> {isEditing ? 'Guardar acción' : 'Agregar acción'}</button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function CreatorCredit({ open, onToggle }) {
+  return (
+    <div className="creator-credit">
+      <button className="creator-trigger" onClick={onToggle} aria-label="Créditos del sistema" aria-expanded={open} title="Hay una historia detrás de esta app">
+        <Sparkles size={17} />
+      </button>
+      {open && (
+        <div className="creator-popover" role="status">
+          <span>Este espacio fue creado por</span>
+          <strong>Val</strong>
+          <a href="https://www.instagram.com/vale_null/" target="_blank" rel="noreferrer">
+            <Instagram size={15} /> @vale_null
+          </a>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function App() {
   const [plan, setPlan] = useState(loadState)
   const [selectedCategory, setSelectedCategory] = useState('all')
@@ -462,8 +627,13 @@ export default function App() {
   const [collapsedCategories, setCollapsedCategories] = useState(() => new Set())
   const [importOpen, setImportOpen] = useState(false)
   const [nameEditOpen, setNameEditOpen] = useState(false)
+  const [goalEditor, setGoalEditor] = useState(null)
+  const [actionEditor, setActionEditor] = useState(null)
+  const [creatorOpen, setCreatorOpen] = useState(false)
   const [saveStatus, setSaveStatus] = useState('saved')
   const personName = plan.ownerName?.trim() || 'Tu nombre'
+  const contractTitle = plan.contract?.trim() || 'Mi Plan de Logros'
+  const needsReimport = plan.sourceName !== 'Plan de Logros original' && plan.parserVersion !== DOCUMENT_PARSER_VERSION
 
   useEffect(() => {
     document.title = `${personName} · Plan de Logros`
@@ -505,7 +675,7 @@ export default function App() {
     return plan.goals.filter((goal) => {
       const categoryMatch = selectedCategory === 'all' || goal.category === selectedCategory
       const statusMatch = statusFilter === 'all' || (statusFilter === 'completed' ? goal.completed : !goal.completed)
-      const searchMatch = !normalizedQuery || [goal.meta, goal.category, goal.identity, goal.outcome]
+      const searchMatch = !normalizedQuery || [goal.meta, goal.category, goal.identity, goal.outcome, ...goal.tasks.map((task) => task.text)]
         .join(' ')
         .toLocaleLowerCase('es')
         .includes(normalizedQuery)
@@ -583,7 +753,9 @@ export default function App() {
     setPlan({
       title: parsed.title,
       ownerName: parsed.ownerName,
+      contract: parsed.contract,
       sourceName: parsed.title,
+      parserVersion: parsed.parserVersion,
       goals: importedGoals,
       updatedAt: new Date().toISOString(),
     })
@@ -596,6 +768,56 @@ export default function App() {
 
   const updateOwnerName = (ownerName) => {
     setPlan((current) => ({ ...current, ownerName }))
+  }
+
+  const sameCategory = (first, second) => (
+    first.trim().localeCompare(second.trim(), 'es', { sensitivity: 'base' }) === 0
+  )
+
+  const getNextGoalNumber = (category) => (
+    Math.max(0, ...plan.goals.filter((goal) => sameCategory(goal.category, category)).map((goal) => Number(goal.number) || 0)) + 1
+  )
+
+  const openNewGoal = () => {
+    const category = selectedCategory !== 'all' ? selectedCategory : (categories[0]?.name || 'Importado')
+    const number = getNextGoalNumber(category)
+    setGoalEditor({ category, number, meta: '', due: '', identity: '', outcome: '', tasks: [] })
+  }
+
+  const saveGoal = (draft) => {
+    const category = categories.find((item) => sameCategory(item.name, draft.category))?.name || draft.category
+    const normalizedDraft = { ...draft, category }
+
+    if (draft.id) {
+      setPlan((current) => ({
+        ...current,
+        goals: current.goals.map((goal) => goal.id === draft.id ? { ...goal, ...normalizedDraft } : goal),
+      }))
+      return
+    }
+
+    const id = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    const goal = prepareGoals([{ ...normalizedDraft, id, completed: false, note: '', tasks: [] }])[0]
+    setPlan((current) => ({ ...current, goals: [...current.goals, goal] }))
+    setOpenGoals((current) => new Set(current).add(id))
+  }
+
+  const saveAction = (goalId, draft) => {
+    setPlan((current) => ({
+      ...current,
+      goals: current.goals.map((goal) => {
+        if (goal.id !== goalId) return goal
+        if (draft.id) {
+          return { ...goal, tasks: goal.tasks.map((task) => task.id === draft.id ? { ...task, ...draft } : task) }
+        }
+        const task = {
+          ...draft,
+          id: `${goalId}-accion-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          completed: false,
+        }
+        return { ...goal, completed: false, tasks: [...goal.tasks, task] }
+      }),
+    }))
   }
 
   const downloadBackup = () => {
@@ -635,31 +857,35 @@ export default function App() {
         stats={stats}
       />
 
-      <header className="mobile-header">
-        <button className="brand brand-button" onClick={() => setNameEditOpen(true)} aria-label={`Editar nombre: ${personName}`}>
-          <span className="brand-mark"><Check size={18} strokeWidth={3} /></span>
-          <span title={personName}>{personName}</span>
-          <Pencil className="brand-edit-icon" size={13} />
-        </button>
-        <button className="icon-button" onClick={() => setImportOpen(true)} aria-label="Importar documento"><Upload size={19} /></button>
-      </header>
-
       <main className="main-content">
         <div className="content-wrap">
           <header className="page-header">
-            <div>
-              <p className="today-label">{dateLabel}</p>
-              <h1>{plan.title}</h1>
-              <p className="page-subtitle">Avanza con calma. Cada acción cuenta.</p>
+            <div className="appbar-contract">
+              <p className="today-label"><span>Mi contrato</span> · {dateLabel}</p>
+              <h1 title={contractTitle}>{contractTitle}</h1>
             </div>
             <div className="header-actions">
               <div className="save-state" aria-live="polite">
                 {saveStatus === 'saving' ? <LoaderCircle className="spin" size={15} /> : <CheckCircle2 size={15} />}
                 {saveStatus === 'saving' ? 'Guardando…' : 'Guardado localmente'}
               </div>
-              <button className="primary-button desktop-import" onClick={() => setImportOpen(true)}><Upload size={17} /> Importar documento</button>
+              <button className="secondary-button appbar-action" onClick={openNewGoal}><Plus size={17} /> <span>Nuevo logro</span></button>
+              <button className="primary-button appbar-action" onClick={() => setImportOpen(true)}><Upload size={17} /> <span>Importar</span></button>
+              <button className="icon-button appbar-icon" onClick={() => setNameEditOpen(true)} aria-label={`Editar nombre: ${personName}`} title={personName}><UserRound size={17} /></button>
+              <CreatorCredit open={creatorOpen} onToggle={() => setCreatorOpen((current) => !current)} />
             </div>
           </header>
+
+          {needsReimport && (
+            <section className="parser-warning" aria-live="polite">
+              <AlertCircle size={19} />
+              <div>
+                <strong>Este plan sigue usando el lector anterior</strong>
+                <span>Vuelve a importar el archivo para reconstruir todos los logros y acciones correctamente.</span>
+              </div>
+              <button className="secondary-button" onClick={() => setImportOpen(true)}>Reimportar ahora</button>
+            </section>
+          )}
 
           <section className="hero-card" aria-label="Resumen de progreso">
             <div className="hero-copy">
@@ -759,6 +985,9 @@ export default function App() {
                           onToggleGoal={toggleGoal}
                           onToggleTask={toggleTask}
                           onNoteChange={updateNote}
+                          onEditGoal={setGoalEditor}
+                          onAddTask={(selectedGoal) => setActionEditor({ goal: selectedGoal, task: null })}
+                          onEditTask={(selectedGoal, task) => setActionEditor({ goal: selectedGoal, task })}
                           open={openGoals.has(goal.id)}
                           onToggleOpen={toggleOpen}
                         />
@@ -783,10 +1012,13 @@ export default function App() {
         <button className="active" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><Home size={20} /><span>Inicio</span></button>
         <button onClick={() => document.getElementById('goals')?.scrollIntoView({ behavior: 'smooth' })}><ListChecks size={20} /><span>Logros</span></button>
         <button className="bottom-import" onClick={() => setImportOpen(true)}><Upload size={21} /><span>Importar</span></button>
+        <button onClick={() => setNameEditOpen(true)}><UserRound size={20} /><span>Perfil</span></button>
       </nav>
 
       {importOpen && <ImportModal onClose={() => setImportOpen(false)} onImport={importPlan} />}
       {nameEditOpen && <EditNameModal currentName={personName} onClose={() => setNameEditOpen(false)} onSave={updateOwnerName} />}
+      {goalEditor && <GoalEditorModal initialGoal={goalEditor} categories={categories.map((category) => category.name)} getNextNumber={getNextGoalNumber} onClose={() => setGoalEditor(null)} onSave={saveGoal} />}
+      {actionEditor && <ActionEditorModal goal={actionEditor.goal} task={actionEditor.task} onClose={() => setActionEditor(null)} onSave={saveAction} />}
     </div>
   )
 }
