@@ -4,6 +4,8 @@ import {
   ArrowRight,
   BriefcaseBusiness,
   CalendarDays,
+  CalendarRange,
+  ChartGantt,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -279,6 +281,236 @@ function ProgressRing({ value }) {
         <span>completado</span>
       </div>
     </div>
+  )
+}
+
+const GANTT_DAY = 24 * 60 * 60 * 1000
+
+const parseGanttDate = (value) => {
+  const parsed = parseCalendarDate(value)
+  return parsed ? new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()) : null
+}
+
+const addGanttDays = (date, days) => new Date(date.getFullYear(), date.getMonth(), date.getDate() + days)
+
+const ganttDayDistance = (start, end) => Math.round((end.getTime() - start.getTime()) / GANTT_DAY)
+
+function GanttChart({ goals }) {
+  const [open, setOpen] = useState(true)
+  const [collapsedGroups, setCollapsedGroups] = useState(() => new Set())
+  const scrollRef = useRef(null)
+
+  const schedule = useMemo(() => {
+    const grouped = new Map()
+    let scheduledCount = 0
+    let undatedCount = 0
+
+    goals.forEach((goal) => {
+      let previousDate = null
+      goal.tasks.forEach((task, taskIndex) => {
+        const end = parseGanttDate(task.due)
+        if (!end) {
+          undatedCount += 1
+          return
+        }
+
+        const candidateStart = previousDate && previousDate < end
+          ? addGanttDays(previousDate, 1)
+          : addGanttDays(end, -6)
+        const start = candidateStart < addGanttDays(end, -20) ? addGanttDays(end, -20) : candidateStart
+        previousDate = end
+        scheduledCount += 1
+
+        if (!grouped.has(goal.category)) grouped.set(goal.category, [])
+        grouped.get(goal.category).push({ goal, task, taskIndex, start, end })
+      })
+    })
+
+    const items = Array.from(grouped.values()).flat()
+    if (!items.length) return { groups: [], scheduledCount, undatedCount }
+
+    const earliest = new Date(Math.min(...items.map((item) => item.start.getTime())))
+    const latest = new Date(Math.max(...items.map((item) => item.end.getTime())))
+    const rangeStart = new Date(earliest.getFullYear(), earliest.getMonth(), 1)
+    const rangeEnd = new Date(latest.getFullYear(), latest.getMonth() + 1, 0)
+    const rangeDays = ganttDayDistance(rangeStart, rangeEnd) + 1
+    const chartWidth = Math.max(820, rangeDays * 8)
+    const months = []
+
+    let monthCursor = new Date(rangeStart)
+    while (monthCursor <= rangeEnd) {
+      const segmentStart = new Date(monthCursor)
+      const segmentEnd = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 0)
+      const visibleEnd = segmentEnd > rangeEnd ? rangeEnd : segmentEnd
+      const offset = ganttDayDistance(rangeStart, segmentStart)
+      const days = ganttDayDistance(segmentStart, visibleEnd) + 1
+      months.push({
+        label: capitalize(new Intl.DateTimeFormat('es-PE', { month: 'long', year: 'numeric' }).format(segmentStart)),
+        left: (offset / rangeDays) * 100,
+        width: (days / rangeDays) * 100,
+      })
+      monthCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1)
+    }
+
+    const today = new Date()
+    const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+    const todayPosition = todayDate >= rangeStart && todayDate <= rangeEnd
+      ? (ganttDayDistance(rangeStart, todayDate) + 0.5) / rangeDays
+      : null
+
+    return {
+      groups: Array.from(grouped.entries()),
+      scheduledCount,
+      undatedCount,
+      rangeStart,
+      rangeEnd,
+      rangeDays,
+      chartWidth,
+      months,
+      todayPosition,
+    }
+  }, [goals])
+
+  useEffect(() => {
+    const scrollContainer = scrollRef.current
+    if (!open || !scrollContainer || schedule.todayPosition === null || scrollContainer.clientWidth >= 600) return
+
+    const labelWidth = 205
+    const visibleTimeline = Math.max(120, scrollContainer.clientWidth - labelWidth)
+    scrollContainer.scrollLeft = Math.max(0, (schedule.todayPosition * schedule.chartWidth) - (visibleTimeline * 0.55))
+  }, [open, schedule.chartWidth, schedule.todayPosition])
+
+  const shortDate = (date) => new Intl.DateTimeFormat('es-PE', { day: '2-digit', month: 'short' })
+    .format(date)
+    .replace('.', '')
+
+  const toggleGroup = (category) => {
+    setCollapsedGroups((current) => {
+      const next = new Set(current)
+      if (next.has(category)) next.delete(category)
+      else next.add(category)
+      return next
+    })
+  }
+
+  return (
+    <section className={`gantt-card ${open ? 'open' : ''}`} aria-labelledby="gantt-title">
+      <button
+        className="gantt-card-header"
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        aria-controls="gantt-content"
+      >
+        <span className="gantt-heading-icon"><ChartGantt size={21} /></span>
+        <span className="gantt-heading-copy">
+          <span className="section-kicker">Planificación</span>
+          <strong id="gantt-title">Tu cronograma</strong>
+          <small>Visualiza cuándo ocurre cada acción de tu plan.</small>
+        </span>
+        {schedule.rangeStart && (
+          <span className="gantt-range"><CalendarRange size={15} /> {shortDate(schedule.rangeStart)} — {shortDate(schedule.rangeEnd)}</span>
+        )}
+        <span className="gantt-toggle-label">{open ? 'Ocultar' : 'Mostrar'} <ChevronDown size={18} /></span>
+      </button>
+
+      {open && (
+        <div className="gantt-content" id="gantt-content">
+          {schedule.groups.length ? (
+            <>
+              <div className="gantt-summary">
+                <span><strong>{schedule.scheduledCount}</strong> acciones programadas</span>
+                <span className="gantt-legend-item"><i className="gantt-legend-dot pending" /> Pendiente</span>
+                <span className="gantt-legend-item"><i className="gantt-legend-dot complete" /> Completada</span>
+              </div>
+
+              <div className="gantt-scroll" ref={scrollRef} tabIndex="0" aria-label="Cronograma desplazable">
+                <div
+                  className="gantt-chart"
+                  style={{
+                    '--timeline-width': `${schedule.chartWidth}px`,
+                    '--week-width': `${(7 / schedule.rangeDays) * 100}%`,
+                    '--today-left': schedule.todayPosition === null ? '0px' : `${schedule.todayPosition * schedule.chartWidth}px`,
+                  }}
+                >
+                  {schedule.todayPosition !== null && (
+                    <span className="gantt-today-line" aria-hidden="true"><span>Hoy</span></span>
+                  )}
+
+                  <div className="gantt-chart-header">
+                    <span className="gantt-sticky-label">Acciones</span>
+                    <div className="gantt-months">
+                      {schedule.months.map((month) => (
+                        <span key={month.label} style={{ left: `${month.left}%`, width: `${month.width}%` }}>{month.label}</span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {schedule.groups.map(([category, items]) => {
+                    const categoryStyle = getCategoryStyle(category)
+                    const collapsed = collapsedGroups.has(category)
+                    return (
+                      <div className="gantt-group" key={category} style={{ '--gantt-color': categoryStyle.color, '--gantt-soft': categoryStyle.soft }}>
+                        <button
+                          className="gantt-category-row"
+                          type="button"
+                          onClick={() => toggleGroup(category)}
+                          aria-expanded={!collapsed}
+                        >
+                          <span className="gantt-sticky-label">
+                            <ChevronDown size={15} />
+                            <i />
+                            <strong>{categoryStyle.label}</strong>
+                            <small>{items.length}</small>
+                          </span>
+                          <span className="gantt-category-timeline" />
+                        </button>
+
+                        {!collapsed && items.map(({ goal, task, taskIndex, start, end }) => {
+                          const left = (ganttDayDistance(schedule.rangeStart, start) / schedule.rangeDays) * 100
+                          const width = ((ganttDayDistance(start, end) + 1) / schedule.rangeDays) * 100
+                          const label = `Logro ${goal.number} · Acción ${taskIndex + 1}`
+                          return (
+                            <div className="gantt-task-row" key={task.id}>
+                              <span className="gantt-sticky-label" title={task.text}>
+                                <span className={`gantt-task-status ${task.completed ? 'complete' : ''}`}>
+                                  {task.completed ? <Check size={11} strokeWidth={3} /> : <Circle size={10} />}
+                                </span>
+                                <span>
+                                  <strong>{label}</strong>
+                                  <small>{task.text}</small>
+                                </span>
+                              </span>
+                              <div className="gantt-task-timeline">
+                                <span
+                                  className={`gantt-bar ${task.completed ? 'complete' : ''}`}
+                                  style={{ left: `${left}%`, width: `max(${width}%, 34px)` }}
+                                  title={`${label}: ${task.text} — ${task.due}`}
+                                >
+                                  <span>{label}</span>
+                                  <time>{shortDate(end)}</time>
+                                </span>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="gantt-footnote">
+                <span>Las barras terminan en la fecha límite indicada en cada acción.</span>
+                {schedule.undatedCount > 0 && <span><Clock3 size={13} /> {schedule.undatedCount} acciones sin fecha exacta</span>}
+              </div>
+            </>
+          ) : (
+            <div className="gantt-empty"><CalendarDays size={20} /> Agrega fechas a tus acciones para verlas en el cronograma.</div>
+          )}
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -1646,6 +1878,8 @@ export default function App() {
             <span className="hero-orb hero-orb-one" />
             <span className="hero-orb hero-orb-two" />
           </section>
+
+          <GanttChart goals={plan.goals} />
 
           {nextAction && (
             <section className="focus-strip">
