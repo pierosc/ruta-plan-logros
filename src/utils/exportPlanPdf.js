@@ -33,10 +33,10 @@ const card = (stack, { fill = '#ffffff', accent, padding = 16 } = {}) => ({
 const heading = (text) => ({ text, style: 'section', headlineLevel: 1 })
 const detailCard = (label, text, palette) => text?.trim() ? [{
   ...card([
-    { text: label, bold: true, color: palette.accent, fontSize: 10, margin: [0, 0, 0, 7] },
+    { text: label, bold: true, color: palette.accent, fontSize: 10, margin: [0, 0, 0, 5] },
     { text: text.trim() },
-  ], { fill: palette.tint, accent: palette.accent, padding: 12 }),
-  margin: [0, 10, 0, 0],
+  ], { fill: palette.tint, accent: palette.accent, padding: 10 }),
+  margin: [0, 8, 0, 0],
 }] : []
 
 const fileNameFor = (ownerName, date) => {
@@ -72,12 +72,12 @@ export const downloadPlanPdf = async (plan) => {
   const content = [
     {
       ...card([
-        { text: 'MI PLAN PERSONAL', color: '#cfc3f8', fontSize: 9, characterSpacing: 2, margin: [0, 0, 0, 12] },
-        { text: title, fontSize: 42, bold: true, color: '#ffffff', margin: [0, 0, 0, 8] },
+        { text: 'MI PLAN PERSONAL', color: '#cfc3f8', fontSize: 9, characterSpacing: 2, margin: [0, 0, 0, 8] },
+        { text: title, fontSize: 36, bold: true, color: '#ffffff', margin: [0, 0, 0, 6] },
         ...(owner ? [{ text: owner, fontSize: 17, color: '#ede7ff', margin: [0, 0, 0, 7] }] : []),
         { text: dateLabel, color: '#cfc3f8', fontSize: 10 },
-      ], { fill: '#302546', padding: 22 }),
-      margin: [0, 8, 0, 14],
+      ], { fill: '#302546', padding: 18 }),
+      margin: [0, 6, 0, 12],
     },
     {
       columns: [
@@ -86,11 +86,11 @@ export const downloadPlanPdf = async (plan) => {
         [`${completedTasks} / ${tasks.length}`, 'acciones completadas', '#a26924', '#fcf0db'],
       ].map(([value, label, color, fill]) => ({
         ...card([
-          { text: value, fontSize: 26, bold: true, color, margin: [0, 0, 0, 6] },
+          { text: value, fontSize: 24, bold: true, color, margin: [0, 0, 0, 4] },
           { text: label, fontSize: 9, color: COLORS.muted },
-        ], { fill, padding: 12 }), width: '*',
+        ], { fill, padding: 10 }), width: '*',
       })),
-      columnGap: 10, margin: [0, 0, 0, 12],
+      columnGap: 10, margin: [0, 0, 0, 10],
     },
     {
       canvas: [
@@ -109,11 +109,11 @@ export const downloadPlanPdf = async (plan) => {
         ...card([
           { text: area.name, bold: true, color: palette.accent, margin: [0, 0, 0, 5] },
           { text: `${area.completed} de ${area.total} logros completados`, fontSize: 9, color: COLORS.muted },
-        ], { fill: palette.tint, accent: palette.accent, padding: 10 }), width: '*',
+        ], { fill: palette.tint, accent: palette.accent, padding: 8 }), width: '*',
       }
     })
     if (columns.length === 1) columns.push({ text: '', width: '*' })
-    content.push({ columns, columnGap: 10, unbreakable: true, margin: [0, 0, 0, 10] })
+    content.push({ columns, columnGap: 10, unbreakable: true, margin: [0, 0, 0, 8] })
   }
 
   for (const [goalIndex, goal] of plan.goals.entries()) {
@@ -123,22 +123,24 @@ export const downloadPlanPdf = async (plan) => {
     const palette = areaPalette(goal.category)
     content.push({
       ...card([
-        { text: displayCategory(goal.category), color: '#ffffff', fontSize: 10, margin: [0, 0, 0, 8] },
+        { text: displayCategory(goal.category), color: '#ffffff', fontSize: 10, margin: [0, 0, 0, 4] },
         {
           columns: [
-            { text: `Logro ${String(goalNumber).padStart(2, '0')}`, fontSize: 26, bold: true, color: '#ffffff' },
-            { text: goal.completed ? 'COMPLETADO' : 'EN CAMINO', color: '#ffffff', fontSize: 9, bold: true, alignment: 'right', margin: [0, 12, 0, 0] },
+            { text: `Logro ${String(goalNumber).padStart(2, '0')}`, fontSize: 22, bold: true, color: '#ffffff' },
+            { text: goal.completed ? 'COMPLETADO' : 'EN CAMINO', color: '#ffffff', fontSize: 9, bold: true, alignment: 'right', margin: [0, 9, 0, 0] },
           ],
         },
-        { text: `${done} de ${goalTasks.length} acciones completadas`, color: '#ffffff', fontSize: 9, margin: [0, 8, 0, 0] },
-      ], { fill: palette.accent, padding: 16 }),
-      pageBreak: 'before', margin: [0, 0, 0, 12],
+        { text: `${done} de ${goalTasks.length} acciones completadas`, color: '#ffffff', fontSize: 9, margin: [0, 5, 0, 0] },
+      ], { fill: palette.accent, padding: 12 }),
+      headlineLevel: 3,
+      pageBreak: goalIndex === 0 ? 'before' : undefined,
+      margin: [0, goalIndex === 0 ? 0 : 16, 0, 8],
     }, {
       ...card([
-        { text: goal.meta || 'Sin descripción', fontSize: 11.5, lineHeight: 1.2 },
-        ...(goal.due ? [{ text: `Fecha del logro: ${goal.due}`, color: palette.accent, bold: true, fontSize: 9, margin: [0, 12, 0, 0] }] : []),
-      ], { fill: palette.tint, padding: 14 }),
-      margin: [0, 0, 0, 6],
+        { text: goal.meta || 'Sin descripción', fontSize: 11, lineHeight: 1.15 },
+        ...(goal.due ? [{ text: `Fecha del logro: ${goal.due}`, color: palette.accent, bold: true, fontSize: 9, margin: [0, 8, 0, 0] }] : []),
+      ], { fill: palette.tint, padding: 10 }),
+      margin: [0, 0, 0, 4],
     }, heading('Mis acciones'))
     if (!goalTasks.length) content.push({ text: 'Este logro todavía no tiene acciones.', color: COLORS.muted })
 
@@ -155,16 +157,16 @@ export const downloadPlanPdf = async (plan) => {
             ] }],
             [{ stack: [
               { text: task.text || 'Sin descripción' },
-              ...(task.due ? [{ text: task.due, color: COLORS.muted, fontSize: 9, margin: [0, 8, 0, 0] }] : []),
+              ...(task.due ? [{ text: task.due, color: COLORS.muted, fontSize: 9, margin: [0, 5, 0, 0] }] : []),
             ] }],
           ],
         },
         layout: {
           hLineWidth: () => 0, vLineWidth: (index) => index === 0 ? 3 : 0,
           vLineColor: () => palette.accent, fillColor: (row) => row === 0 ? palette.tint : '#ffffff',
-          paddingLeft: () => 13, paddingRight: () => 13, paddingTop: () => 8, paddingBottom: () => 8,
+          paddingLeft: () => 11, paddingRight: () => 11, paddingTop: () => 6, paddingBottom: () => 6,
         },
-        margin: [0, 5, 0, 8],
+        margin: [0, 3, 0, 6],
       })
 
       const attachments = task.attachments || []
@@ -186,25 +188,22 @@ export const downloadPlanPdf = async (plan) => {
           if (!imageKey) missingImages += 1
           columns.push({
             ...card([imageKey
-              ? { image: imageKey, fit: [batch.length === 1 ? CONTENT_WIDTH - 16 : (CONTENT_WIDTH - 12) / 2 - 16, 320], alignment: 'center' }
+              ? { image: imageKey, fit: [batch.length === 1 ? CONTENT_WIDTH - 12 : (CONTENT_WIDTH - 10) / 2 - 12, 290], alignment: 'center' }
               : { text: 'Evidencia no disponible', color: COLORS.muted, alignment: 'center', margin: [0, 25, 0, 25] },
-            ], { padding: 8 }), width: '*',
+            ], { padding: 6 }), width: '*',
           })
         }
-        content.push({ columns, columnGap: 12, unbreakable: true, margin: [0, 0, 0, 12] })
+        content.push({ columns, columnGap: 10, unbreakable: true, margin: [0, 0, 0, 8] })
       }
     }
-    content.push(
-      ...detailCard('Resultado esperado', goal.outcome, { accent: COLORS.green, tint: '#eaf5ef' }),
-      ...detailCard('Mis notas', goal.note, { accent: '#936320', tint: '#fcf2de' }),
-    )
+    content.push(...detailCard('Mis notas', goal.note, { accent: '#936320', tint: '#fcf2de' }))
   }
 
   const definition = {
     info: { title, author: owner, subject: 'Mis logros y evidencias' },
     pageSize: 'A4', pageMargins: [42, 48, 42, 46],
-    defaultStyle: { font: 'Roboto', fontSize: 10.5, lineHeight: 1.15, color: COLORS.ink },
-    styles: { section: { fontSize: 15, bold: true, color: COLORS.ink, margin: [0, 14, 0, 9] } },
+    defaultStyle: { font: 'Roboto', fontSize: 10.5, lineHeight: 1.1, color: COLORS.ink },
+    styles: { section: { fontSize: 13, bold: true, color: COLORS.ink, margin: [0, 10, 0, 6] } },
     background: (_page, size) => ({ absolutePosition: { x: 0, y: 0 }, canvas: [
       { type: 'rect', x: 0, y: 0, w: size.width, h: size.height, color: COLORS.paper },
       { type: 'rect', x: 0, y: 0, w: 7, h: size.height, color: '#d5c8f1' },
@@ -227,6 +226,8 @@ export const downloadPlanPdf = async (plan) => {
       (node.headlineLevel === 1 && container.getFollowingNodesOnPage().length === 0)
       // Leave room for the action heading and its first lines on the same page.
       || (node.headlineLevel === 2 && node.startPosition.top > 720)
+      // Flow successive goals together, keeping space for a new goal's description.
+      || (node.headlineLevel === 3 && node.startPosition.top > 535)
     ),
     content, images,
   }
