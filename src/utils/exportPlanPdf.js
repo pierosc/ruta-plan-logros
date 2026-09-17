@@ -168,35 +168,39 @@ export const downloadPlanPdf = async (plan) => {
         },
         margin: [0, 3, 0, 6],
       })
-
-      const attachments = task.attachments || []
-      for (let offset = 0; offset < attachments.length; offset += 2) {
-        const batch = attachments.slice(offset, offset + 2)
-        const columns = []
-        for (const attachment of batch) {
-          let imageKey
-          try {
-            const blob = await getActionImage(attachment.id)
-            if (blob) {
-              const { dataUrl } = await mediaToPdfImage(blob, attachment)
-              imageKey = `evidence-${includedImages++}`
-              images[imageKey] = dataUrl
-            }
-          } catch {
-            // A corrupt or unsupported attachment must not discard the rest of the report.
-          }
-          if (!imageKey) missingImages += 1
-          columns.push({
-            ...card([imageKey
-              ? { image: imageKey, fit: [batch.length === 1 ? CONTENT_WIDTH - 12 : (CONTENT_WIDTH - 10) / 2 - 12, 290], alignment: 'center' }
-              : { text: 'Evidencia no disponible', color: COLORS.muted, alignment: 'center', margin: [0, 25, 0, 25] },
-            ], { padding: 6 }), width: '*',
-          })
-        }
-        content.push({ columns, columnGap: 10, unbreakable: true, margin: [0, 0, 0, 8] })
-      }
     }
+
     content.push(...detailCard('Mis notas', goal.note, { accent: '#936320', tint: '#fcf2de' }))
+
+    const attachments = goalTasks.flatMap((task) => task.attachments || [])
+    for (let offset = 0; offset < attachments.length; offset += 2) {
+      const batch = attachments.slice(offset, offset + 2)
+      const columns = []
+      for (const attachment of batch) {
+        let imageKey
+        try {
+          const blob = await getActionImage(attachment.id)
+          if (blob) {
+            const { dataUrl } = await mediaToPdfImage(blob, attachment)
+            imageKey = `evidence-${includedImages++}`
+            images[imageKey] = dataUrl
+          }
+        } catch {
+          // A corrupt or unsupported attachment must not discard the rest of the report.
+        }
+        if (!imageKey) missingImages += 1
+        columns.push({
+          ...card([imageKey
+            ? { image: imageKey, fit: [batch.length === 1 ? CONTENT_WIDTH - 12 : (CONTENT_WIDTH - 10) / 2 - 12, 290], alignment: 'center' }
+            : { text: 'Evidencia no disponible', color: COLORS.muted, alignment: 'center', margin: [0, 25, 0, 25] },
+          ], { padding: 6 }), width: '*',
+        })
+      }
+      const row = { columns, columnGap: 10, unbreakable: true, margin: [0, 0, 0, 8] }
+      content.push(offset === 0
+        ? { stack: [heading('Fotos del logro'), row], unbreakable: true }
+        : row)
+    }
   }
 
   const definition = {

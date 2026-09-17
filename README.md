@@ -22,6 +22,7 @@ Abre la dirección que muestre Vite (normalmente `http://localhost:5173`).
 - Respaldo descargable en JSON y restauración del plan inicial.
 - Botón **Descargar PDF** junto a **Mis logros**, con el plan completo, estados, fechas, notas e imágenes de cada acción (independiente de los filtros).
 - PDF compacto con portada, resumen por área, tarjetas de colores y fotos sin nombres de archivo ni pies de imagen. Usa el título «Mis logros» y omite «Quién quiero ser» y «Resultado esperado». Los logros continúan en la misma página cuando hay espacio.
+- Cada logro del PDF presenta primero todas sus acciones, después las notas y al final una galería conjunta de fotos y fotogramas de video, sin agruparlos por acción.
 - Evidencias de imágenes (hasta 8 MB) y videos (hasta 50 MB), con un máximo de 4 archivos por acción. El PDF captura un fotograma de cada video compatible con el navegador.
 - Secciones por área que se pueden contraer y expandir.
 - Diseño adaptable para escritorio, tablet y teléfono.
