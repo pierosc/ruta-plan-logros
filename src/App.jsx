@@ -1465,6 +1465,9 @@ export default function App() {
   const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [creatorOpen, setCreatorOpen] = useState(false)
   const [saveStatus, setSaveStatus] = useState('saved')
+  const [pdfExporting, setPdfExporting] = useState(false)
+  const [pdfNotice, setPdfNotice] = useState(null)
+  const pdfExportLock = useRef(false)
   const hasPlan = plan.goals.length > 0
   const personName = plan.ownerName?.trim() || 'Tu nombre'
   const contractTitle = plan.contract?.trim() || (hasPlan ? 'Mi Plan de Logros' : 'Empieza con tu Plan de Logros')
@@ -1781,6 +1784,25 @@ export default function App() {
     URL.revokeObjectURL(url)
   }
 
+  const exportPdf = async () => {
+    if (pdfExportLock.current || !plan.goals.length) return
+    pdfExportLock.current = true
+    setPdfExporting(true)
+    setPdfNotice({ type: 'info', text: 'Preparando tu plan completo con sus imágenes…' })
+    try {
+      const { downloadPlanPdf } = await import('./utils/exportPlanPdf.js')
+      const { missingImages } = await downloadPlanPdf(plan)
+      setPdfNotice(missingImages
+        ? { type: 'warning', text: `PDF generado. No se pudieron incluir ${missingImages} imágenes; el documento indica cuáles. Puedes volver a adjuntarlas y descargarlo otra vez.` }
+        : { type: 'success', text: 'PDF generado con todos tus logros e imágenes. Revisa tus descargas.' })
+    } catch {
+      setPdfNotice({ type: 'error', text: 'No se pudo generar el PDF. Inténtalo de nuevo.' })
+    } finally {
+      pdfExportLock.current = false
+      setPdfExporting(false)
+    }
+  }
+
   const resetPlan = async () => {
     if (!window.confirm('¿Vaciar este plan? Se eliminarán sus logros, checks y notas guardados en este navegador.')) return
     await clearActionImages().catch(() => {})
@@ -1898,8 +1920,27 @@ export default function App() {
                 <span className="section-kicker">Checklist</span>
                 <h2>Mis logros</h2>
               </div>
-              <span className="result-count">{filteredGoals.length} {filteredGoals.length === 1 ? 'logro' : 'logros'}</span>
+              <div className="goals-heading-actions">
+                <span className="result-count">{filteredGoals.length} {filteredGoals.length === 1 ? 'logro' : 'logros'}</span>
+                <button
+                  className="secondary-button pdf-download-button"
+                  onClick={exportPdf}
+                  disabled={pdfExporting}
+                  aria-busy={pdfExporting}
+                  title="Descargar el plan completo con sus acciones, notas e imágenes"
+                >
+                  {pdfExporting ? <LoaderCircle className="spin" size={17} /> : <Download size={17} />}
+                  {pdfExporting ? 'Generando PDF…' : 'Descargar PDF'}
+                </button>
+              </div>
             </div>
+
+            {pdfNotice && (
+              <div className={`pdf-export-notice ${pdfNotice.type}`} role={pdfNotice.type === 'error' || pdfNotice.type === 'warning' ? 'alert' : 'status'}>
+                {pdfNotice.type === 'error' || pdfNotice.type === 'warning' ? <AlertCircle size={17} /> : pdfNotice.type === 'success' ? <CheckCircle2 size={17} /> : <LoaderCircle className="spin" size={17} />}
+                <span>{pdfNotice.text}</span>
+              </div>
+            )}
 
             <div className="toolbar">
               <div className="status-tabs" role="tablist" aria-label="Filtrar por estado">

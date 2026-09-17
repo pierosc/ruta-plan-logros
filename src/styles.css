@@ -611,6 +611,13 @@ h1, h2, h3, p { margin-top: 0; }
 .section-kicker { color: var(--primary); font-size: 10px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
 .section-heading-row h2 { margin: 2px 0 0; font-family: 'Manrope', sans-serif; font-size: 25px; letter-spacing: -0.7px; }
 .result-count { color: #9295a0; font-size: 11px; }
+.goals-heading-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px 14px; }
+.pdf-download-button { white-space: nowrap; }
+.pdf-download-button:disabled { opacity: .65; cursor: wait; }
+.pdf-export-notice { display: flex; align-items: flex-start; gap: 9px; margin: 0 0 18px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); color: var(--ink); font-size: 12px; line-height: 1.5; }
+.pdf-export-notice svg { flex-shrink: 0; margin-top: 1px; color: var(--primary); }
+.pdf-export-notice.warning svg, .pdf-export-notice.error svg { color: #c68b26; }
+.pdf-export-notice.success svg { color: #2f9b79; }
 
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 31px; }
 .status-tabs { display: flex; padding: 4px; border: 1px solid var(--border); border-radius: 11px; background: rgba(255,255,255,0.7); }
