@@ -1,47 +1,43 @@
 import pdfMake from 'pdfmake/build/pdfmake'
 import pdfFonts from 'pdfmake/build/vfs_fonts'
 import { getActionImage } from './localMedia.js'
+import { mediaToPdfImage } from './attachmentMedia.js'
 
 pdfMake.addVirtualFileSystem(pdfFonts)
 
-const COLORS = { ink: '#292840', muted: '#686777', purple: '#6758d9', green: '#26795a', soft: '#f1edff' }
-
-// Decode one image at a time to keep large phone photos from exhausting memory.
-// Canvas also normalizes browser-supported formats (including WebP) for the PDF.
-const imageToDataUrl = async (blob) => {
-  const url = URL.createObjectURL(blob)
-  const image = new Image()
-  const canvas = document.createElement('canvas')
-  try {
-    await new Promise((resolve, reject) => {
-      const timer = window.setTimeout(() => reject(new Error('La imagen tardó demasiado en cargar.')), 15000)
-      image.onload = () => { window.clearTimeout(timer); resolve() }
-      image.onerror = () => { window.clearTimeout(timer); reject(new Error('No se pudo leer la imagen.')) }
-      image.src = url
-    })
-    if (!image.naturalWidth || !image.naturalHeight) throw new Error('La imagen está vacía.')
-    const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight))
-    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
-    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
-    const context = canvas.getContext('2d')
-    if (!context) throw new Error('No se pudo preparar la imagen.')
-    context.fillStyle = '#ffffff'
-    context.fillRect(0, 0, canvas.width, canvas.height)
-    context.drawImage(image, 0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL('image/jpeg', 0.88)
-  } finally {
-    image.onload = null
-    image.onerror = null
-    image.src = ''
-    URL.revokeObjectURL(url)
-    canvas.width = 0
-    canvas.height = 0
-  }
+const COLORS = { ink: '#29243f', muted: '#746e87', purple: '#7156ce', paper: '#f8f6fc', green: '#287759' }
+const PAGE_WIDTH = 595.28
+const CONTENT_WIDTH = PAGE_WIDTH - 84
+const displayCategory = (category) => (category || 'Otra área').replace(/\s*\(un solo logro[^)]*\)\s*/i, '').trim()
+const AREA_COLORS = [
+  ['familia', '#b8496d', '#fbeef2'], ['dinero', '#9b6b19', '#fbf3e2'],
+  ['trabajo', '#4166b5', '#edf2fc'], ['salud', '#287759', '#eaf6ef'],
+  ['relaciones', '#8b55ab', '#f5eefb'], ['servicio', '#b75b32', '#fff0e8'],
+  ['recreacion', '#7156ce', '#f0ebfc'], ['medio ambiente', '#4e7c36', '#eef5e8'],
+]
+const areaPalette = (category = '') => {
+  const normalized = category.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const match = AREA_COLORS.find(([name]) => normalized.includes(name))
+  return match ? { accent: match[1], tint: match[2] } : { accent: COLORS.purple, tint: '#f0ebfc' }
 }
 
+const card = (stack, { fill = '#ffffff', accent, padding = 16 } = {}) => ({
+  table: { widths: ['*'], body: [[{ stack }]] },
+  layout: {
+    hLineWidth: () => 0, vLineWidth: (index) => accent && index === 0 ? 3 : 0,
+    vLineColor: () => accent || fill, fillColor: () => fill,
+    paddingLeft: () => padding, paddingRight: () => padding,
+    paddingTop: () => padding, paddingBottom: () => padding,
+  },
+})
 const heading = (text) => ({ text, style: 'section', headlineLevel: 1 })
-const paragraph = (text) => ({ text: String(text), margin: [0, 0, 0, 10] })
-const optionalSection = (title, text) => text?.trim() ? [heading(title), paragraph(text)] : []
+const detailCard = (label, text, palette) => text?.trim() ? [{
+  ...card([
+    { text: label, bold: true, color: palette.accent, fontSize: 10, margin: [0, 0, 0, 7] },
+    { text: text.trim() },
+  ], { fill: palette.tint, accent: palette.accent, padding: 12 }),
+  margin: [0, 10, 0, 0],
+}] : []
 
 const fileNameFor = (ownerName, date) => {
   const name = (ownerName || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -55,140 +51,185 @@ export const downloadPlanPdf = async (plan) => {
 
   const generatedAt = new Date()
   const dateLabel = new Intl.DateTimeFormat('es-PE', { dateStyle: 'long' }).format(generatedAt)
-  const title = plan.title?.trim() || 'Mi Plan de Logros'
+  // Imported document filenames are not personal report titles.
+  const title = 'Mis logros'
   const owner = plan.ownerName?.trim() || ''
   const tasks = plan.goals.flatMap((goal) => goal.tasks || [])
   const completedTasks = tasks.filter((task) => task.completed).length
   const completedGoals = plan.goals.filter((goal) => goal.completed).length
-  const attachmentCount = tasks.reduce((count, task) => count + (task.attachments?.length || 0), 0)
   const progress = Math.round(tasks.length ? completedTasks / tasks.length * 100 : completedGoals / plan.goals.length * 100)
+  const areas = new Map()
+  for (const goal of plan.goals) {
+    const name = displayCategory(goal.category)
+    const current = areas.get(name) || { name, completed: 0, total: 0 }
+    current.total += 1
+    current.completed += goal.completed ? 1 : 0
+    areas.set(name, current)
+  }
   const images = {}
   let includedImages = 0
   let missingImages = 0
   const content = [
-    { text: 'MI RUTA DE LOGROS', style: 'eyebrow', margin: [0, 28, 0, 14] },
-    { text: title, style: 'title' },
-    ...(owner ? [{ text: owner, fontSize: 17, margin: [0, 0, 0, 8] }] : []),
-    { text: `Exportado el ${dateLabel}`, style: 'muted', margin: [0, 0, 0, 26] },
     {
-      table: {
-        widths: ['*', '*', '*'],
-        body: [[
-          { stack: [{ text: `${progress}%`, style: 'stat' }, { text: 'de avance', style: 'muted' }] },
-          { stack: [{ text: `${completedGoals} / ${plan.goals.length}`, style: 'stat' }, { text: 'logros completados', style: 'muted' }] },
-          { stack: [{ text: `${completedTasks} / ${tasks.length}`, style: 'stat' }, { text: 'acciones completadas', style: 'muted' }] },
-        ]],
-      },
-      layout: {
-        hLineWidth: () => 0, vLineWidth: () => 0,
-        fillColor: () => COLORS.soft,
-        paddingLeft: () => 14, paddingRight: () => 14, paddingTop: () => 18, paddingBottom: () => 18,
-      },
-      margin: [0, 0, 0, 24],
+      ...card([
+        { text: 'MI PLAN PERSONAL', color: '#cfc3f8', fontSize: 9, characterSpacing: 2, margin: [0, 0, 0, 12] },
+        { text: title, fontSize: 42, bold: true, color: '#ffffff', margin: [0, 0, 0, 8] },
+        ...(owner ? [{ text: owner, fontSize: 17, color: '#ede7ff', margin: [0, 0, 0, 7] }] : []),
+        { text: dateLabel, color: '#cfc3f8', fontSize: 10 },
+      ], { fill: '#302546', padding: 22 }),
+      margin: [0, 8, 0, 14],
     },
-    ...optionalSection('Mi contrato', plan.contract),
-    heading('Acerca de este documento'),
-    paragraph(`Incluye los ${plan.goals.length} logros del plan completo, sus acciones, fechas, estados y notas personales, junto con ${attachmentCount} imágenes adjuntas. El avance corresponde al momento de la descarga.`),
+    {
+      columns: [
+        [`${progress}%`, 'de avance', COLORS.purple, '#eee8fc'],
+        [`${completedGoals} / ${plan.goals.length}`, 'logros completados', COLORS.green, '#e7f4eb'],
+        [`${completedTasks} / ${tasks.length}`, 'acciones completadas', '#a26924', '#fcf0db'],
+      ].map(([value, label, color, fill]) => ({
+        ...card([
+          { text: value, fontSize: 26, bold: true, color, margin: [0, 0, 0, 6] },
+          { text: label, fontSize: 9, color: COLORS.muted },
+        ], { fill, padding: 12 }), width: '*',
+      })),
+      columnGap: 10, margin: [0, 0, 0, 12],
+    },
+    {
+      canvas: [
+        { type: 'rect', x: 0, y: 0, w: CONTENT_WIDTH, h: 6, color: '#e5def2' },
+        ...(progress ? [{ type: 'rect', x: 0, y: 0, w: CONTENT_WIDTH * progress / 100, h: 6, color: COLORS.purple }] : []),
+      ], margin: [0, 0, 0, 8],
+    },
+    ...detailCard('Mi contrato', plan.contract, { accent: COLORS.purple, tint: '#eee8fc' }),
+    heading('Mi progreso por área'),
   ]
+  const areaList = [...areas.values()]
+  for (let offset = 0; offset < areaList.length; offset += 2) {
+    const columns = areaList.slice(offset, offset + 2).map((area) => {
+      const palette = areaPalette(area.name)
+      return {
+        ...card([
+          { text: area.name, bold: true, color: palette.accent, margin: [0, 0, 0, 5] },
+          { text: `${area.completed} de ${area.total} logros completados`, fontSize: 9, color: COLORS.muted },
+        ], { fill: palette.tint, accent: palette.accent, padding: 10 }), width: '*',
+      }
+    })
+    if (columns.length === 1) columns.push({ text: '', width: '*' })
+    content.push({ columns, columnGap: 10, unbreakable: true, margin: [0, 0, 0, 10] })
+  }
 
   for (const [goalIndex, goal] of plan.goals.entries()) {
     const goalNumber = goal.number || goalIndex + 1
     const goalTasks = goal.tasks || []
     const done = goalTasks.filter((task) => task.completed).length
-    content.push(
-      { text: goal.category || 'Otra área', style: 'eyebrow', pageBreak: 'before' },
-      { text: `Logro ${goalNumber}`, style: 'goalTitle' },
-      {
-        text: `${goal.completed ? 'Completado' : 'Pendiente'}  ·  ${done} de ${goalTasks.length} acciones completadas`,
-        color: goal.completed ? COLORS.green : COLORS.muted,
-        margin: [0, 0, 0, 12],
-      },
-      paragraph(goal.meta || 'Sin descripción'),
-      ...(goal.due ? [{ text: `Fecha del logro: ${goal.due}`, bold: true, margin: [0, 0, 0, 14] }] : []),
-      ...optionalSection('Quién quiero ser', goal.identity),
-      heading('Mis acciones'),
-    )
-    if (!goalTasks.length) content.push(paragraph('Este logro todavía no tiene acciones.'))
+    const palette = areaPalette(goal.category)
+    content.push({
+      ...card([
+        { text: displayCategory(goal.category), color: '#ffffff', fontSize: 10, margin: [0, 0, 0, 8] },
+        {
+          columns: [
+            { text: `Logro ${String(goalNumber).padStart(2, '0')}`, fontSize: 26, bold: true, color: '#ffffff' },
+            { text: goal.completed ? 'COMPLETADO' : 'EN CAMINO', color: '#ffffff', fontSize: 9, bold: true, alignment: 'right', margin: [0, 12, 0, 0] },
+          ],
+        },
+        { text: `${done} de ${goalTasks.length} acciones completadas`, color: '#ffffff', fontSize: 9, margin: [0, 8, 0, 0] },
+      ], { fill: palette.accent, padding: 16 }),
+      pageBreak: 'before', margin: [0, 0, 0, 12],
+    }, {
+      ...card([
+        { text: goal.meta || 'Sin descripción', fontSize: 11.5, lineHeight: 1.2 },
+        ...(goal.due ? [{ text: `Fecha del logro: ${goal.due}`, color: palette.accent, bold: true, fontSize: 9, margin: [0, 12, 0, 0] }] : []),
+      ], { fill: palette.tint, padding: 14 }),
+      margin: [0, 0, 0, 6],
+    }, heading('Mis acciones'))
+    if (!goalTasks.length) content.push({ text: 'Este logro todavía no tiene acciones.', color: COLORS.muted })
 
     for (const [taskIndex, task] of goalTasks.entries()) {
-      content.push(
-        {
-          text: `Acción ${taskIndex + 1}  ·  ${task.completed ? 'Completada' : 'Pendiente'}`,
-          style: 'actionTitle', headlineLevel: 1,
-          color: task.completed ? COLORS.green : COLORS.purple,
+      // Repeating the action header preserves context when long text spans pages.
+      content.push({
+        headlineLevel: 2,
+        table: {
+          widths: ['*'], headerRows: 1,
+          body: [
+            [{ columns: [
+              { text: `ACCIÓN ${String(taskIndex + 1).padStart(2, '0')}`, bold: true, color: palette.accent, fontSize: 10 },
+              { text: task.completed ? 'Completada' : 'Pendiente', color: task.completed ? COLORS.green : COLORS.muted, alignment: 'right', fontSize: 9 },
+            ] }],
+            [{ stack: [
+              { text: task.text || 'Sin descripción' },
+              ...(task.due ? [{ text: task.due, color: COLORS.muted, fontSize: 9, margin: [0, 8, 0, 0] }] : []),
+            ] }],
+          ],
         },
-        paragraph(task.text || 'Sin descripción'),
-        ...(task.due ? [{ text: `Fecha: ${task.due}`, style: 'muted', margin: [0, 0, 0, 10] }] : []),
-      )
+        layout: {
+          hLineWidth: () => 0, vLineWidth: (index) => index === 0 ? 3 : 0,
+          vLineColor: () => palette.accent, fillColor: (row) => row === 0 ? palette.tint : '#ffffff',
+          paddingLeft: () => 13, paddingRight: () => 13, paddingTop: () => 8, paddingBottom: () => 8,
+        },
+        margin: [0, 5, 0, 8],
+      })
 
       const attachments = task.attachments || []
       for (let offset = 0; offset < attachments.length; offset += 2) {
+        const batch = attachments.slice(offset, offset + 2)
         const columns = []
-        for (const [columnIndex, attachment] of attachments.slice(offset, offset + 2).entries()) {
+        for (const attachment of batch) {
           let imageKey
           try {
             const blob = await getActionImage(attachment.id)
             if (blob) {
-              const dataUrl = await imageToDataUrl(blob)
+              const { dataUrl } = await mediaToPdfImage(blob, attachment)
               imageKey = `evidence-${includedImages++}`
               images[imageKey] = dataUrl
             }
           } catch {
-            // Keep the rest of the plan exportable and explicitly label unavailable evidence.
+            // A corrupt or unsupported attachment must not discard the rest of the report.
           }
           if (!imageKey) missingImages += 1
-          const caption = `Logro ${goalNumber} · Acción ${taskIndex + 1} · Imagen ${offset + columnIndex + 1}`
           columns.push({
-            width: '*',
-            stack: [
-              imageKey
-                ? { image: imageKey, fit: [235, 190], alignment: 'center' }
-                : { text: 'Imagen no disponible en este dispositivo o formato no compatible.', color: '#946023', margin: [8, 20, 8, 20] },
-              { text: caption, style: 'caption', margin: [0, 6, 0, 2] },
-              { text: String(attachment.name || 'Imagen adjunta').slice(0, 120), style: 'caption' },
-            ],
+            ...card([imageKey
+              ? { image: imageKey, fit: [batch.length === 1 ? CONTENT_WIDTH - 16 : (CONTENT_WIDTH - 12) / 2 - 16, 320], alignment: 'center' }
+              : { text: 'Evidencia no disponible', color: COLORS.muted, alignment: 'center', margin: [0, 25, 0, 25] },
+            ], { padding: 8 }), width: '*',
           })
         }
-        if (columns.length === 1) columns.push({ width: '*', text: '' })
-        content.push({ columns, columnGap: 20, unbreakable: true, margin: [0, 2, 0, 16] })
+        content.push({ columns, columnGap: 12, unbreakable: true, margin: [0, 0, 0, 12] })
       }
     }
-    content.push(...optionalSection('Resultado esperado', goal.outcome), ...optionalSection('Mis notas', goal.note))
-  }
-
-  if (missingImages) {
-    content.splice(5, 0, {
-      text: `Se incluyeron ${includedImages} de ${attachmentCount} imágenes. ${missingImages} no se pudieron cargar; encontrarás un aviso en su lugar.`,
-      color: '#946023', margin: [0, 0, 0, 16],
-    })
+    content.push(
+      ...detailCard('Resultado esperado', goal.outcome, { accent: COLORS.green, tint: '#eaf5ef' }),
+      ...detailCard('Mis notas', goal.note, { accent: '#936320', tint: '#fcf2de' }),
+    )
   }
 
   const definition = {
-    info: { title, author: owner, subject: 'Plan de logros con avances e imágenes' },
-    pageSize: 'A4', pageMargins: [48, 54, 48, 50],
-    defaultStyle: { font: 'Roboto', fontSize: 10.5, lineHeight: 1.25, color: COLORS.ink },
-    styles: {
-      title: { fontSize: 30, bold: true, lineHeight: 1.1, margin: [0, 0, 0, 16] },
-      goalTitle: { fontSize: 25, bold: true, margin: [0, 8, 0, 10] },
-      eyebrow: { fontSize: 10, bold: true, color: COLORS.purple, characterSpacing: 1.1 },
-      section: { fontSize: 12, bold: true, margin: [0, 14, 0, 8] },
-      actionTitle: { fontSize: 11, bold: true, margin: [0, 10, 0, 6] },
-      stat: { fontSize: 24, bold: true, color: COLORS.purple, margin: [0, 0, 0, 5] },
-      muted: { fontSize: 9, color: COLORS.muted },
-      caption: { fontSize: 8, color: COLORS.muted, lineHeight: 1.1 },
+    info: { title, author: owner, subject: 'Mis logros y evidencias' },
+    pageSize: 'A4', pageMargins: [42, 48, 42, 46],
+    defaultStyle: { font: 'Roboto', fontSize: 10.5, lineHeight: 1.15, color: COLORS.ink },
+    styles: { section: { fontSize: 15, bold: true, color: COLORS.ink, margin: [0, 14, 0, 9] } },
+    background: (_page, size) => ({ absolutePosition: { x: 0, y: 0 }, canvas: [
+      { type: 'rect', x: 0, y: 0, w: size.width, h: size.height, color: COLORS.paper },
+      { type: 'rect', x: 0, y: 0, w: 7, h: size.height, color: '#d5c8f1' },
+      { type: 'ellipse', x: size.width - 20, y: 0, r1: 130, r2: 110, color: '#eee8f8' },
+      { type: 'ellipse', x: size.width, y: size.height, r1: 140, r2: 90, color: '#f0e7ef' },
+    ] }),
+    header: {
+      columns: [
+        { text: 'MI RUTA DE LOGROS', bold: true, characterSpacing: 1.3, color: COLORS.purple },
+        { text: String(generatedAt.getFullYear()), alignment: 'right', color: COLORS.muted },
+      ], fontSize: 8, margin: [42, 23, 42, 0],
     },
-    header: { text: 'PLAN DE LOGROS', fontSize: 8, color: COLORS.muted, margin: [48, 25, 48, 0] },
     footer: (page, total) => ({
       columns: [
-        { text: dateLabel },
-        { text: `${page} / ${total}`, alignment: 'right' },
-      ], fontSize: 8, color: COLORS.muted, margin: [48, 20, 48, 0],
+        { text: 'MIS LOGROS', bold: true, characterSpacing: 1, color: COLORS.purple },
+        { text: `${page} / ${total}`, alignment: 'right', color: COLORS.muted },
+      ], fontSize: 8, margin: [42, 18, 42, 0],
     }),
-    pageBreakBefore: (node, container) => node.headlineLevel === 1 && container.getFollowingNodesOnPage().length === 0,
-    content,
-    images,
+    pageBreakBefore: (node, container) => (
+      (node.headlineLevel === 1 && container.getFollowingNodesOnPage().length === 0)
+      // Leave room for the action heading and its first lines on the same page.
+      || (node.headlineLevel === 2 && node.startPosition.top > 720)
+    ),
+    content, images,
   }
-
   await pdfMake.createPdf(definition).download(fileNameFor(owner, generatedAt))
   return { includedImages, missingImages }
 }

@@ -45,6 +45,7 @@ import {
 } from 'lucide-react'
 import { DEFAULT_PLAN, DEFAULT_PLAN_TITLE } from './data/defaultPlan.js'
 import { DOCUMENT_PARSER_VERSION, readPlanDocument } from './utils/documentParser.js'
+import { actionMediaError, isVideoMedia } from './utils/attachmentMedia.js'
 import {
   clearActionImages,
   deleteActionImage,
@@ -514,6 +515,26 @@ function GanttChart({ goals }) {
   )
 }
 
+function MediaPreview({ file, url }) {
+  if (!isVideoMedia(file)) return <img src={url} alt={file.name || 'Evidencia de la acción'} />
+  return (
+    <span className="media-preview">
+      <video
+        src={url}
+        muted
+        playsInline
+        preload="metadata"
+        aria-label={file.name || 'Video de la acción'}
+        onLoadedMetadata={(event) => {
+          const video = event.currentTarget
+          if (Number.isFinite(video.duration) && video.duration > 0) video.currentTime = Math.min(0.1, video.duration / 4)
+        }}
+      />
+      <span className="media-video-badge">▶ Video</span>
+    </span>
+  )
+}
+
 function StoredActionImage({ attachment, onRemove }) {
   const [url, setUrl] = useState('')
   const [missing, setMissing] = useState(false)
@@ -544,13 +565,13 @@ function StoredActionImage({ attachment, onRemove }) {
     <div className={`stored-action-image ${missing ? 'missing' : ''}`}>
       {url ? (
         <a href={url} target="_blank" rel="noreferrer" title={`Abrir ${attachment.name}`}>
-          <img src={url} alt={attachment.name || 'Evidencia de la acción'} />
+          <MediaPreview file={attachment} url={url} />
         </a>
       ) : (
         <span className="stored-image-placeholder"><ImagePlus size={18} /> {missing ? 'No disponible' : 'Cargando…'}</span>
       )}
       {onRemove && (
-        <button type="button" onClick={() => onRemove(attachment.id)} aria-label={`Quitar ${attachment.name}`} title="Quitar imagen">
+        <button type="button" onClick={() => onRemove(attachment.id)} aria-label={`Quitar ${attachment.name}`} title="Quitar evidencia">
           <Trash2 size={13} />
         </button>
       )}
@@ -569,11 +590,11 @@ function QuickImageUpload({ goal, task, onOpen }) {
         type="button"
         onClick={() => onOpen(goal, task)}
         disabled={isFull}
-        aria-label={isFull ? 'Esta acción ya tiene 4 imágenes' : `Añadir imagen a la acción: ${task.text}`}
-        title={isFull ? 'Límite de 4 imágenes. Puedes administrarlas desde Editar.' : 'Abrir el diálogo de evidencias'}
+        aria-label={isFull ? 'Esta acción ya tiene 4 evidencias' : `Añadir imagen o video a la acción: ${task.text}`}
+        title={isFull ? 'Límite de 4 evidencias. Puedes administrarlas desde Editar.' : 'Añadir imágenes o videos'}
       >
         <ImagePlus size={14} />
-        <span>{isFull ? '4/4' : 'Imagen'}</span>
+        <span>{isFull ? '4/4' : 'Evidencia'}</span>
       </button>
     </div>
   )
@@ -667,7 +688,7 @@ function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, onEditGoal, 
                         </span>
                       </label>
                       {!!task.attachments?.length && (
-                        <div className="task-attachments" aria-label="Imágenes de la acción">
+                        <div className="task-attachments" aria-label="Evidencias de la acción">
                           {task.attachments.map((attachment) => (
                             <StoredActionImage
                               attachment={attachment}
@@ -694,7 +715,7 @@ function GoalCard({ goal, onToggleGoal, onToggleTask, onNoteChange, onEditGoal, 
             )}
             <div className="inline-media-notice">
               <HardDrive size={13} />
-              <span>Las imágenes quedan solo en este navegador. Mover el archivo original no las afecta.</span>
+              <span>Las imágenes y los videos quedan solo en este navegador. Mover el archivo original no los afecta.</span>
             </div>
           </div>
 
@@ -834,9 +855,9 @@ function ImageImportModal({ goal, task, onClose, onSave }) {
     const selected = Array.from(files || [])
     if (!selected.length) return
 
-    const invalidFile = selected.find((file) => !file.type.startsWith('image/') || file.size > 8 * 1024 * 1024)
+    const invalidFile = selected.find((file) => actionMediaError(file))
     if (invalidFile) {
-      setError('Usa imágenes JPG, PNG o WebP de hasta 8 MB cada una.')
+      setError(actionMediaError(invalidFile))
       return
     }
 
@@ -848,13 +869,13 @@ function ImageImportModal({ goal, task, onClose, onSave }) {
       return { file, previewUrl }
     })
     setSelectedImages(additions)
-    setError(selected.length > availableSlots ? `Solo puedes agregar ${availableSlots} imagen${availableSlots === 1 ? '' : 'es'} más a esta acción.` : '')
+    setError(selected.length > availableSlots ? `Solo puedes agregar ${availableSlots} archivo${availableSlots === 1 ? '' : 's'} más a esta acción.` : '')
     if (inputRef.current) inputRef.current.value = ''
   }
 
   const submit = async () => {
     if (!selectedImages.length) {
-      setError('Primero selecciona al menos una imagen.')
+      setError('Primero selecciona una imagen o un video.')
       return
     }
 
@@ -864,7 +885,7 @@ function ImageImportModal({ goal, task, onClose, onSave }) {
       await onSave(goal.id, task.id, selectedImages.map(({ file }) => file))
       onClose()
     } catch (saveError) {
-      setError(saveError.message || 'No pudimos guardar las imágenes.')
+      setError(saveError.message || 'No pudimos guardar las evidencias.')
     } finally {
       setSaving(false)
     }
@@ -876,7 +897,7 @@ function ImageImportModal({ goal, task, onClose, onSave }) {
         <div className="modal-header">
           <div>
             <span className="modal-kicker">Evidencia local · Logro {goal.number}</span>
-            <h2 id="image-import-title">Agregar imágenes</h2>
+            <h2 id="image-import-title">Agregar imágenes o videos</h2>
             <p>{task.text}</p>
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Cerrar"><X size={20} /></button>
@@ -894,18 +915,18 @@ function ImageImportModal({ goal, task, onClose, onSave }) {
           tabIndex={0}
           onKeyDown={(event) => (event.key === 'Enter' || event.key === ' ') && inputRef.current?.click()}
         >
-          <input ref={inputRef} type="file" accept="image/*" multiple hidden onChange={(event) => chooseImages(event.target.files)} />
+          <input ref={inputRef} type="file" accept="image/*,video/*" multiple hidden disabled={saving} onChange={(event) => chooseImages(event.target.files)} />
           {selectedImages.length ? <CheckCircle2 size={31} /> : <ImagePlus size={31} />}
-          <strong>{selectedImages.length ? `${selectedImages.length} imagen${selectedImages.length === 1 ? '' : 'es'} lista${selectedImages.length === 1 ? '' : 's'}` : 'Arrastra tus imágenes aquí'}</strong>
-          <span>{selectedImages.length ? 'Toca aquí si quieres cambiar la selección' : 'o toca para buscarlas en tu dispositivo'}</span>
-          <small>JPG, PNG o WebP · máximo 8 MB · {availableSlots} espacio{availableSlots === 1 ? '' : 's'} disponible{availableSlots === 1 ? '' : 's'}</small>
+          <strong>{selectedImages.length ? `${selectedImages.length} archivo${selectedImages.length === 1 ? '' : 's'} listo${selectedImages.length === 1 ? '' : 's'}` : 'Arrastra tus imágenes o videos aquí'}</strong>
+          <span>{selectedImages.length ? 'Toca aquí si quieres cambiar la selección' : 'o toca para buscarlos en tu dispositivo'}</span>
+          <small>Imágenes hasta 8 MB · videos hasta 50 MB · {availableSlots} espacio{availableSlots === 1 ? '' : 's'} disponible{availableSlots === 1 ? '' : 's'}</small>
         </div>
 
         {!!selectedImages.length && (
-          <div className="image-selection-grid" aria-label="Vista previa de las imágenes seleccionadas">
+          <div className="image-selection-grid" aria-label="Vista previa de las evidencias seleccionadas">
             {selectedImages.map(({ file, previewUrl }) => (
               <figure key={`${file.name}-${file.lastModified}`}>
-                <img src={previewUrl} alt={file.name} />
+                <MediaPreview file={file} url={previewUrl} />
                 <figcaption title={file.name}>{file.name}</figcaption>
               </figure>
             ))}
@@ -916,7 +937,7 @@ function ImageImportModal({ goal, task, onClose, onSave }) {
           <HardDrive size={18} />
           <span>
             <strong>Se guarda una copia en este navegador.</strong>
-            Mover o eliminar el archivo original no la afecta. La imagen sí desaparecerá si borras los datos del sitio, cambias de navegador o usas otro dispositivo. No se sube a internet ni se incluye en el respaldo JSON.
+            En el PDF, cada video se muestra como una imagen fija. Los archivos no se suben a internet ni se incluyen en el respaldo JSON; se perderán si borras los datos del sitio o cambias de dispositivo.
           </span>
         </div>
 
@@ -925,7 +946,7 @@ function ImageImportModal({ goal, task, onClose, onSave }) {
           <button className="secondary-button" type="button" onClick={onClose} disabled={saving}>Cancelar</button>
           <button className="primary-button" type="button" onClick={submit} disabled={saving || !selectedImages.length}>
             {saving ? <LoaderCircle className="spin" size={18} /> : <ImagePlus size={18} />}
-            {saving ? 'Guardando…' : 'Guardar imágenes'}
+            {saving ? 'Guardando…' : 'Guardar evidencias'}
           </button>
         </div>
       </section>
@@ -1258,13 +1279,13 @@ function ActionEditorModal({ goal, task, onClose, onSave }) {
   const chooseImages = (files) => {
     const availableSlots = Math.max(0, 4 - visibleExistingAttachments.length - newImages.length)
     const selected = Array.from(files || [])
-    const invalid = selected.find((file) => !file.type.startsWith('image/') || file.size > 8 * 1024 * 1024)
+    const invalid = selected.find((file) => actionMediaError(file))
     if (invalid) {
-      setError('Usa imágenes de hasta 8 MB cada una.')
+      setError(actionMediaError(invalid))
       return
     }
     if (!availableSlots) {
-      setError('Puedes guardar hasta 4 imágenes por acción.')
+      setError('Puedes guardar hasta 4 evidencias por acción.')
       return
     }
 
@@ -1275,7 +1296,7 @@ function ActionEditorModal({ goal, task, onClose, onSave }) {
       return { id, file, previewUrl }
     })
     setNewImages((current) => [...current, ...additions])
-    setError(selected.length > availableSlots ? 'Solo se añadieron las imágenes que caben en el límite de 4.' : '')
+    setError(selected.length > availableSlots ? 'Solo se añadieron los archivos que caben en el límite de 4.' : '')
     if (imageInputRef.current) imageInputRef.current.value = ''
   }
 
@@ -1309,7 +1330,7 @@ function ActionEditorModal({ goal, task, onClose, onSave }) {
       )
       onClose()
     } catch (saveError) {
-      setError(saveError.message || 'No se pudieron guardar las imágenes.')
+      setError(saveError.message || 'No se pudieron guardar las evidencias.')
     } finally {
       setSaving(false)
     }
@@ -1338,10 +1359,10 @@ function ActionEditorModal({ goal, task, onClose, onSave }) {
           <div className="action-media-heading">
             <div>
               <span id="action-images-title">Evidencias</span>
-              <small>{visibleExistingAttachments.length + newImages.length}/4 imágenes</small>
+              <small>{visibleExistingAttachments.length + newImages.length}/4 archivos</small>
             </div>
-            <button type="button" onClick={() => imageInputRef.current?.click()}><ImagePlus size={16} /> Añadir imágenes</button>
-            <input ref={imageInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => chooseImages(event.target.files)} />
+            <button type="button" onClick={() => imageInputRef.current?.click()} disabled={saving}><ImagePlus size={16} /> Imagen o video</button>
+            <input ref={imageInputRef} type="file" accept="image/*,video/*" multiple hidden disabled={saving} onChange={(event) => chooseImages(event.target.files)} />
           </div>
 
           {(visibleExistingAttachments.length > 0 || newImages.length > 0) && (
@@ -1355,7 +1376,7 @@ function ActionEditorModal({ goal, task, onClose, onSave }) {
               ))}
               {newImages.map((image) => (
                 <div className="stored-action-image pending" key={image.id}>
-                  <img src={image.previewUrl} alt={image.file.name} />
+                  <MediaPreview file={image.file} url={image.previewUrl} />
                   <button type="button" onClick={() => removeNewImage(image.id)} aria-label={`Quitar ${image.file.name}`}><Trash2 size={13} /></button>
                 </div>
               ))}
@@ -1364,7 +1385,7 @@ function ActionEditorModal({ goal, task, onClose, onSave }) {
 
           <div className="media-local-notice">
             <HardDrive size={16} />
-            <span>Guardamos una copia solo en este navegador. Mover el archivo original no la afecta; se perderá si borras los datos del sitio o cambias de dispositivo. El respaldo JSON no incluye las imágenes.</span>
+            <span>Guardamos una copia solo en este navegador. Los videos aparecen como una imagen fija en el PDF. El respaldo JSON no incluye estos archivos; se perderán si borras los datos del sitio o cambias de dispositivo.</span>
           </div>
         </section>
         {error && <div className="modal-error"><AlertCircle size={16} /> {error}</div>}
@@ -1709,14 +1730,14 @@ export default function App() {
 
   const addTaskImages = async (goalId, taskId, files) => {
     const selectedFiles = Array.from(files || [])
-    const invalidFile = selectedFiles.find((file) => !file.type.startsWith('image/') || file.size > 8 * 1024 * 1024)
-    if (invalidFile) throw new Error('Usa imágenes de hasta 8 MB cada una.')
+    const invalidFile = selectedFiles.find((file) => actionMediaError(file))
+    if (invalidFile) throw new Error(actionMediaError(invalidFile))
 
     const currentTask = plan.goals.find((goal) => goal.id === goalId)?.tasks.find((task) => task.id === taskId)
     if (!currentTask) throw new Error('No encontramos esta acción.')
 
     const availableSlots = Math.max(0, 4 - (currentTask.attachments?.length || 0))
-    if (!availableSlots) throw new Error('Puedes guardar hasta 4 imágenes por acción.')
+    if (!availableSlots) throw new Error('Puedes guardar hasta 4 evidencias por acción.')
 
     const additions = selectedFiles.slice(0, availableSlots).map((file) => ({
       id: globalThis.crypto?.randomUUID?.() || `imagen-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -1755,7 +1776,7 @@ export default function App() {
       .find((task) => task.id === taskId)?.attachments
       ?.find((image) => image.id === attachmentId)
     if (!attachment) return
-    if (!window.confirm(`¿Quitar la imagen ${attachment.name || 'seleccionada'}? Esta copia local se eliminará.`)) return
+    if (!window.confirm(`¿Quitar la evidencia ${attachment.name || 'seleccionada'}? Esta copia local se eliminará.`)) return
 
     try {
       await deleteActionImage(attachmentId)
@@ -1770,7 +1791,7 @@ export default function App() {
         } : goal),
       }))
     } catch {
-      window.alert('No pudimos quitar la imagen. Inténtalo nuevamente.')
+      window.alert('No pudimos quitar la evidencia. Inténtalo nuevamente.')
     }
   }
 
@@ -1793,7 +1814,7 @@ export default function App() {
       const { downloadPlanPdf } = await import('./utils/exportPlanPdf.js')
       const { missingImages } = await downloadPlanPdf(plan)
       setPdfNotice(missingImages
-        ? { type: 'warning', text: `PDF generado. No se pudieron incluir ${missingImages} imágenes; el documento indica cuáles. Puedes volver a adjuntarlas y descargarlo otra vez.` }
+        ? { type: 'warning', text: `PDF generado. No se ${missingImages === 1 ? 'pudo incluir 1 evidencia' : `pudieron incluir ${missingImages} evidencias`}; el documento indica dónde faltan. Revisa que las imágenes y los videos se puedan abrir en este navegador y vuelve a generar el PDF.` }
         : { type: 'success', text: 'PDF generado con todos tus logros e imágenes. Revisa tus descargas.' })
     } catch {
       setPdfNotice({ type: 'error', text: 'No se pudo generar el PDF. Inténtalo de nuevo.' })
